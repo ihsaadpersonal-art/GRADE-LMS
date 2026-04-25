@@ -3,6 +3,11 @@ import { Card, StatusBadge } from "@/components/ui";
 import { getCurrentProfile } from "@/lib/auth";
 import { leads } from "@/lib/sample-data";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
+
+const leadStatuses = ["new", "contacted", "interested", "payment_pending", "enrolled", "lost"] as const;
+
+type LeadStatus = (typeof leadStatuses)[number];
 
 type LeadView = {
   id: string;
@@ -51,6 +56,7 @@ export default async function AdminLeadsPage() {
                 <th>Source</th>
                 <th>Status</th>
                 <th>Message / Notes</th>
+                <th>Update</th>
                 <th>Created</th>
               </tr>
             </thead>
@@ -71,10 +77,55 @@ export default async function AdminLeadsPage() {
                   <td>{lead.interestedProgramme}</td>
                   <td>{lead.preferredMode}</td>
                   <td>{lead.source}</td>
-                  <td><StatusBadge tone="warning">{lead.status.replace("_", " ")}</StatusBadge></td>
+                  <td>
+                    <StatusBadge tone={getLeadStatusTone(lead.status)}>
+                      {formatLeadStatus(lead.status)}
+                    </StatusBadge>
+                  </td>
                   <td>
                     <div>{lead.message ?? "No message"}</div>
                     {lead.notes ? <div className="mt-1 text-muted-foreground">{lead.notes}</div> : null}
+                  </td>
+                  <td className="min-w-64">
+                    {view.isLive ? (
+                      <form action={updateLeadStatus} className="space-y-2">
+                        <input type="hidden" name="leadId" value={lead.id} />
+                        <label className="sr-only" htmlFor={`status-${lead.id}`}>
+                          Lead status
+                        </label>
+                        <select
+                          id={`status-${lead.id}`}
+                          name="status"
+                          defaultValue={lead.status}
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        >
+                          {leadStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {formatLeadStatus(status)}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="sr-only" htmlFor={`notes-${lead.id}`}>
+                          Lead notes
+                        </label>
+                        <textarea
+                          id={`notes-${lead.id}`}
+                          name="notes"
+                          defaultValue={lead.notes ?? ""}
+                          rows={2}
+                          placeholder="Add admin notes"
+                          className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        />
+                        <button
+                          type="submit"
+                          className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-[#104d36]"
+                        >
+                          Save lead
+                        </button>
+                      </form>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Live Supabase data required to update.</p>
+                    )}
                   </td>
                   <td>{lead.createdAt ? formatDateTime(lead.createdAt) : "Preview"}</td>
                 </tr>
@@ -85,6 +136,39 @@ export default async function AdminLeadsPage() {
       </Card>
     </DashboardShell>
   );
+}
+
+async function updateLeadStatus(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const leadId = String(formData.get("leadId") ?? "");
+  const status = String(formData.get("status") ?? "");
+  const notes = String(formData.get("notes") ?? "").trim();
+
+  if (!leadId || !isLeadStatus(status)) {
+    return;
+  }
+
+  await supabase
+    .from("leads")
+    .update({
+      status,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", leadId);
+
+  revalidatePath("/dashboard/admin/leads");
 }
 
 function getSampleLeads() {
@@ -163,4 +247,28 @@ function formatDateTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function isLeadStatus(status: string): status is LeadStatus {
+  return leadStatuses.includes(status as LeadStatus);
+}
+
+function formatLeadStatus(status: string) {
+  return status.replace("_", " ");
+}
+
+function getLeadStatusTone(status: string) {
+  if (status === "enrolled") {
+    return "success";
+  }
+
+  if (status === "lost") {
+    return "danger";
+  }
+
+  if (status === "new") {
+    return "neutral";
+  }
+
+  return "warning";
 }

@@ -19,6 +19,15 @@ type TaskView = {
   reviewTask: string;
   dueAt: string;
   status: string;
+  submission: {
+    status: string;
+    submissionText: string | null;
+    fileUrl: string | null;
+    submittedAt: string | null;
+    score: number | null;
+    teacherFeedback: string | null;
+    reviewedAt: string | null;
+  } | null;
 };
 
 export default async function TaskPage({ params }: { params: Promise<{ taskId: string }> }) {
@@ -75,6 +84,50 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
             </button>
           </form>
         </Card>
+        {task.submission ? (
+          <Card className="lg:col-span-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold">Academic Feedback</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {task.submission.status === "reviewed"
+                    ? "Your reviewed submission is available below."
+                    : "Your submission has been received and is waiting for review."}
+                </p>
+              </div>
+              <StatusBadge tone={task.submission.status === "reviewed" ? "success" : "warning"}>
+                {task.submission.status.replace("_", " ")}
+              </StatusBadge>
+            </div>
+            <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+              {task.submission.submissionText ? (
+                <FeedbackRow label="Submitted note" value={task.submission.submissionText} />
+              ) : null}
+              {task.submission.fileUrl ? (
+                <div className="rounded-md border border-border bg-background p-3">
+                  <dt className="font-medium text-muted-foreground">Proof/file URL</dt>
+                  <dd className="mt-1">
+                    <a className="font-semibold text-primary hover:underline" href={task.submission.fileUrl}>
+                      View submitted file
+                    </a>
+                  </dd>
+                </div>
+              ) : null}
+              {task.submission.submittedAt ? (
+                <FeedbackRow label="Submitted at" value={formatDateTime(task.submission.submittedAt)} />
+              ) : null}
+              {task.submission.score !== null ? (
+                <FeedbackRow label="Score" value={`${task.submission.score}/10`} />
+              ) : null}
+              {task.submission.teacherFeedback ? (
+                <FeedbackRow label="Academic feedback" value={task.submission.teacherFeedback} />
+              ) : null}
+              {task.submission.reviewedAt ? (
+                <FeedbackRow label="Reviewed at" value={formatDateTime(task.submission.reviewedAt)} />
+              ) : null}
+            </dl>
+          </Card>
+        ) : null}
       </div>
     </DashboardShell>
   );
@@ -86,7 +139,7 @@ function getSampleTaskView(taskId: string): TaskView | null {
     return null;
   }
 
-  return task;
+  return { ...task, submission: null };
 }
 
 async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
@@ -124,7 +177,7 @@ async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
     if (student) {
       const { data: submission, error: submissionError } = await supabase
         .from("dtu_submissions")
-        .select("status")
+        .select("status, submission_text, file_url, submitted_at, score, teacher_feedback, reviewed_at")
         .eq("student_id", student.id)
         .eq("dtu_id", task.id)
         .maybeSingle();
@@ -134,9 +187,40 @@ async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
       }
 
       status = submission?.status ?? status;
+      if (submission) {
+        return mapSupabaseTask(task, status, {
+          status: submission.status,
+          submissionText: submission.submission_text,
+          fileUrl: submission.file_url,
+          submittedAt: submission.submitted_at,
+          score: submission.score,
+          teacherFeedback: submission.teacher_feedback,
+          reviewedAt: submission.reviewed_at,
+        });
+      }
     }
   }
 
+  return mapSupabaseTask(task, status, null);
+}
+
+function mapSupabaseTask(
+  task: {
+    id: string;
+    title: string;
+    task_date: string;
+    subject: string | null;
+    chapter: string | null;
+    watch_task: string | null;
+    read_task: string | null;
+    solve_task: string | null;
+    submit_task: string | null;
+    review_task: string | null;
+    due_at: string | null;
+  },
+  status: string,
+  submission: TaskView["submission"],
+): TaskView {
   return {
     id: task.id,
     title: task.title,
@@ -150,6 +234,7 @@ async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
     reviewTask: task.review_task ?? "No review task assigned.",
     dueAt: task.due_at ?? "Not set",
     status,
+    submission,
   };
 }
 
@@ -220,8 +305,24 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+function FeedbackRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-background p-3">
+      <dt className="font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-1 font-semibold leading-6">{value}</dd>
+    </div>
+  );
+}
+
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-BD", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function Task({ label, value }: { label: string; value: string }) {

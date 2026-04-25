@@ -66,6 +66,7 @@ export async function middleware(request: NextRequest) {
   const role = profile.role;
   const allowed =
     (pathname.startsWith("/dashboard/student") && role === "student") ||
+    (pathname.startsWith("/dashboard/parent") && role === "parent") ||
     (pathname.startsWith("/dashboard/teacher") && role === "teacher") ||
     (pathname.startsWith("/dashboard/admin") && (role === "admin" || role === "super_admin")) ||
     pathname === "/dashboard";

@@ -1,11 +1,28 @@
 import { notFound } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-nav";
 import { Card, StatusBadge } from "@/components/ui";
+import { getCurrentProfile } from "@/lib/auth";
 import { dailyTasks } from "@/lib/sample-data";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+type TaskView = {
+  id: string;
+  title: string;
+  taskDate: string;
+  subject: string;
+  chapter: string;
+  watchTask: string;
+  readTask: string;
+  solveTask: string;
+  submitTask: string;
+  reviewTask: string;
+  dueAt: string;
+  status: string;
+};
 
 export default async function TaskPage({ params }: { params: Promise<{ taskId: string }> }) {
   const { taskId } = await params;
-  const task = dailyTasks.find((item) => item.id === taskId);
+  const task = (isUuid(taskId) ? await getSupabaseTaskView(taskId) : null) ?? getSampleTaskView(taskId);
   if (!task) notFound();
 
   return (
@@ -48,6 +65,79 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
   );
 }
 
+function getSampleTaskView(taskId: string): TaskView | null {
+  const task = dailyTasks.find((item) => item.id === taskId);
+  if (!task) {
+    return null;
+  }
+
+  return task;
+}
+
+async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return null;
+  }
+
+  const { data: task, error: taskError } = await supabase
+    .from("daily_task_units")
+    .select(
+      "id, title, task_date, subject, chapter, watch_task, read_task, solve_task, submit_task, review_task, due_at",
+    )
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (taskError || !task) {
+    return null;
+  }
+
+  let status = "not_started";
+  const profile = await getCurrentProfile();
+
+  if (profile?.role === "student") {
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("id")
+      .eq("profile_id", profile.id)
+      .maybeSingle();
+
+    if (studentError) {
+      return null;
+    }
+
+    if (student) {
+      const { data: submission, error: submissionError } = await supabase
+        .from("dtu_submissions")
+        .select("status")
+        .eq("student_id", student.id)
+        .eq("dtu_id", task.id)
+        .maybeSingle();
+
+      if (submissionError) {
+        return null;
+      }
+
+      status = submission?.status ?? status;
+    }
+  }
+
+  return {
+    id: task.id,
+    title: task.title,
+    taskDate: task.task_date,
+    subject: task.subject ?? "General",
+    chapter: task.chapter ?? "Daily Task Unit",
+    watchTask: task.watch_task ?? "No watch task assigned.",
+    readTask: task.read_task ?? "No reading task assigned.",
+    solveTask: task.solve_task ?? "No solving task assigned.",
+    submitTask: task.submit_task ?? "No submission instruction assigned.",
+    reviewTask: task.review_task ?? "No review task assigned.",
+    dueAt: task.due_at ?? "Not set",
+    status,
+  };
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -55,6 +145,10 @@ function Row({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 font-semibold">{value}</dd>
     </div>
   );
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function Task({ label, value }: { label: string; value: string }) {

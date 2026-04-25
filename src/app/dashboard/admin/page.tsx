@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { AlertTriangle, ClipboardCheck, CreditCard, FileText, Users } from "lucide-react";
 import { DashboardShell } from "@/components/dashboard-nav";
 import { ButtonLink, Card, MetricCard, StatusBadge } from "@/components/ui";
@@ -12,6 +13,10 @@ type RecentDtuSubmission = {
   task: string;
   status: string;
   submittedAt: string;
+  submissionText: string | null;
+  fileUrl: string | null;
+  score: number | null;
+  teacherFeedback: string | null;
 };
 
 type RecentQuizAttempt = {
@@ -124,12 +129,7 @@ export default async function AdminDashboardPage() {
             <div className="mt-5 grid gap-3">
               {view.recentDtuSubmissions.length ? (
                 view.recentDtuSubmissions.map((submission) => (
-                  <RecentRow
-                    key={submission.id}
-                    title={submission.task}
-                    meta={`${submission.student} · ${formatDateTime(submission.submittedAt)}`}
-                    badge={submission.status}
-                  />
+                  <DtuReviewRow key={submission.id} submission={submission} />
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">No DTU submissions yet.</p>
@@ -218,7 +218,7 @@ async function getSupabaseAdminView(): Promise<AdminView | null> {
     supabase.from("recovery_actions").select("id", { count: "exact", head: true }).in("status", ["open", "in_progress"]),
     supabase
       .from("dtu_submissions")
-      .select("id, dtu_id, student_id, status, submitted_at, created_at")
+      .select("id, dtu_id, student_id, submission_text, file_url, status, score, teacher_feedback, submitted_at, created_at")
       .order("created_at", { ascending: false })
       .limit(5),
     supabase
@@ -267,7 +267,18 @@ async function getSupabaseAdminView(): Promise<AdminView | null> {
 }
 
 async function mapRecentDtuSubmissions(
-  submissions: { id: string; dtu_id: string; student_id: string; status: string; submitted_at: string | null; created_at: string }[],
+  submissions: {
+    id: string;
+    dtu_id: string;
+    student_id: string;
+    submission_text: string | null;
+    file_url: string | null;
+    status: string;
+    score: number | null;
+    teacher_feedback: string | null;
+    submitted_at: string | null;
+    created_at: string;
+  }[],
 ): Promise<RecentDtuSubmission[]> {
   const supabase = await createSupabaseServerClient();
   if (!supabase || !submissions.length) {
@@ -283,7 +294,48 @@ async function mapRecentDtuSubmissions(
     task: taskTitles.get(submission.dtu_id) ?? "Daily Task Unit",
     status: submission.status,
     submittedAt: submission.submitted_at ?? submission.created_at,
+    submissionText: submission.submission_text,
+    fileUrl: submission.file_url,
+    score: submission.score,
+    teacherFeedback: submission.teacher_feedback,
   }));
+}
+
+async function reviewDtuSubmission(formData: FormData) {
+  "use server";
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const submissionId = String(formData.get("submission_id") ?? "").trim();
+  const scoreValue = Number(formData.get("score"));
+  const teacherFeedback = String(formData.get("teacher_feedback") ?? "").trim();
+
+  if (!submissionId || !Number.isFinite(scoreValue) || scoreValue < 0 || scoreValue > 10) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("dtu_submissions")
+    .update({
+      score: scoreValue,
+      teacher_feedback: teacherFeedback || null,
+      status: "reviewed",
+      reviewed_by: profile.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", submissionId);
+
+  if (!error) {
+    revalidatePath("/dashboard/admin");
+  }
 }
 
 async function mapRecentQuizAttempts(
@@ -394,6 +446,60 @@ function RecentRow({
         <p className="mt-1 text-xs text-muted-foreground">{meta}</p>
       </div>
       <StatusBadge tone={tone}>{badge.replace("_", " ")}</StatusBadge>
+    </div>
+  );
+}
+
+function DtuReviewRow({ submission }: { submission: RecentDtuSubmission }) {
+  return (
+    <div className="rounded-2xl border border-border bg-background p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">{submission.task}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {submission.student} · {formatDateTime(submission.submittedAt)}
+          </p>
+        </div>
+        <StatusBadge tone={submission.status === "reviewed" ? "success" : "warning"}>
+          {submission.status.replace("_", " ")}
+        </StatusBadge>
+      </div>
+      <div className="mt-4 grid gap-2 text-sm text-muted-foreground">
+        {submission.submissionText ? <p>{submission.submissionText}</p> : null}
+        {submission.fileUrl ? (
+          <a className="font-medium text-primary hover:underline" href={submission.fileUrl}>
+            View submitted file
+          </a>
+        ) : null}
+        {submission.score !== null || submission.teacherFeedback ? (
+          <p>
+            Current review: {submission.score ?? "No score"}/10
+            {submission.teacherFeedback ? ` · ${submission.teacherFeedback}` : ""}
+          </p>
+        ) : null}
+      </div>
+      <form action={reviewDtuSubmission} className="mt-4 grid gap-3 md:grid-cols-[120px_1fr_auto]">
+        <input name="submission_id" type="hidden" value={submission.id} />
+        <input
+          className="input"
+          defaultValue={submission.score ?? ""}
+          max={10}
+          min={0}
+          name="score"
+          placeholder="Score /10"
+          required
+          type="number"
+        />
+        <textarea
+          className="input min-h-12"
+          defaultValue={submission.teacherFeedback ?? ""}
+          name="teacher_feedback"
+          placeholder="Teacher feedback"
+        />
+        <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
+          Save Review
+        </button>
+      </form>
     </div>
   );
 }

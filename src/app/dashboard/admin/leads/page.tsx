@@ -2,8 +2,9 @@ import { DashboardShell } from "@/components/dashboard-nav";
 import { Card, StatusBadge } from "@/components/ui";
 import { getCurrentProfile } from "@/lib/auth";
 import { leads } from "@/lib/sample-data";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 const leadStatuses = ["new", "contacted", "interested", "payment_pending", "enrolled", "lost"] as const;
@@ -163,6 +164,22 @@ export default async function AdminLeadsPage() {
                           </p>
                         </form>
                       </div>
+                      {canSendInvitation(lead) ? (
+                        <div className="border-t border-border pt-4">
+                          <form action={sendLeadInvitation} className="space-y-2">
+                            <input type="hidden" name="leadId" value={lead.id} />
+                            <button
+                              type="submit"
+                              className="w-full rounded-xl border border-accent/50 bg-[#fff9eb] px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-[#fff3d6] sm:w-auto"
+                            >
+                              Send invitation
+                            </button>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              Sends a Supabase invitation email only. Account records are not created yet.
+                            </p>
+                          </form>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="whitespace-normal break-words text-sm text-muted-foreground">
@@ -259,7 +276,82 @@ async function prepareLeadEnrolment(formData: FormData) {
   revalidatePath("/dashboard/admin/leads");
 }
 
-function getSampleLeads() {
+async function sendLeadInvitation(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) {
+    return;
+  }
+
+  const leadId = String(formData.get("leadId") ?? "");
+  if (!leadId) {
+    return;
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, student_name, email, status, notes")
+    .eq("id", leadId)
+    .single();
+
+  if (leadError || !lead?.email || !canInviteLeadStatus(lead.status) || hasInvitationSentNote(lead.notes)) {
+    return;
+  }
+
+  const sentAt = new Date().toISOString();
+  const origin = getRequestOrigin(await headers());
+  if (!origin) {
+    const notes = appendLeadNote(
+      lead.notes,
+      `Invitation failed on ${sentAt}: Could not determine the current site URL.`,
+    );
+
+    await supabase
+      .from("leads")
+      .update({
+        notes,
+        updated_at: sentAt,
+      })
+      .eq("id", lead.id);
+
+    revalidatePath("/dashboard/admin/leads");
+    return;
+  }
+
+  const redirectTo = `${origin}/auth/callback?next=/dashboard`;
+  const { data, error } = await supabase.auth.admin.inviteUserByEmail(lead.email, {
+    redirectTo,
+    data: {
+      leadId: lead.id,
+      studentName: lead.student_name,
+      role: "student",
+    },
+  });
+
+  const adminLabel = profile.full_name || profile.email || "admin";
+  const note = error
+    ? `Invitation failed on ${sentAt}: ${getSafeErrorMessage(error.message)}`
+    : `Invitation email sent to ${lead.email} by ${adminLabel} on ${sentAt}. Auth user ID: ${data.user?.id ?? "not returned"}`;
+
+  await supabase
+    .from("leads")
+    .update({
+      status: error ? lead.status : "payment_pending",
+      notes: appendLeadNote(lead.notes, note),
+      updated_at: sentAt,
+    })
+    .eq("id", lead.id);
+
+  revalidatePath("/dashboard/admin/leads");
+}
+
+function getSampleLeads(): { isLive: boolean; leads: LeadView[] } {
   return {
     isLive: false,
     leads: leads.map((lead) => ({
@@ -269,7 +361,7 @@ function getSampleLeads() {
       studentPhone: lead.studentPhone,
       parentPhone: lead.parentPhone,
       whatsapp: lead.whatsapp,
-      email: lead.email,
+      email: lead.email ?? null,
       currentLevel: lead.currentLevel,
       version: lead.version,
       institution: lead.institution,
@@ -277,8 +369,8 @@ function getSampleLeads() {
       preferredMode: lead.preferredMode,
       source: lead.source,
       status: lead.status,
-      message: lead.message,
-      notes: lead.notes,
+      message: lead.message ?? null,
+      notes: lead.notes ?? null,
       createdAt: lead.createdAt,
     })),
   };
@@ -367,6 +459,40 @@ function getPreparedLeadStatus(status: string): LeadStatus {
   }
 
   return "payment_pending";
+}
+
+function canInviteLeadStatus(status: string) {
+  return status === "interested" || status === "payment_pending";
+}
+
+function hasInvitationSentNote(notes: string | null) {
+  return notes?.includes("Invitation email sent") ?? false;
+}
+
+function canSendInvitation(lead: LeadView) {
+  return Boolean(lead.email && canInviteLeadStatus(lead.status) && !hasInvitationSentNote(lead.notes));
+}
+
+function appendLeadNote(existingNotes: string | null, note: string) {
+  return [existingNotes?.trim() || null, note].filter(Boolean).join("\n\n");
+}
+
+function getRequestOrigin(headersList: Headers) {
+  const forwardedHost = headersList.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || headersList.get("host");
+
+  if (!host) {
+    return null;
+  }
+
+  const forwardedProto = headersList.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const protocol = forwardedProto || (host.startsWith("localhost") ? "http" : "https");
+
+  return `${protocol}://${host}`;
+}
+
+function getSafeErrorMessage(message: string) {
+  return message.replace(/\s+/g, " ").slice(0, 180);
 }
 
 function LeadSection({ title, children }: { title: string; children: ReactNode }) {

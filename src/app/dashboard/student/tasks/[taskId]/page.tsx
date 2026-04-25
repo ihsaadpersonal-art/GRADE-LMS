@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { notFound } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-nav";
 import { Card, StatusBadge } from "@/components/ui";
@@ -24,6 +25,7 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
   const { taskId } = await params;
   const task = (isUuid(taskId) ? await getSupabaseTaskView(taskId) : null) ?? getSampleTaskView(taskId);
   if (!task) notFound();
+  const isLiveTask = isUuid(taskId);
 
   return (
     <DashboardShell role="student" title="Daily Task Unit">
@@ -46,17 +48,30 @@ export default async function TaskPage({ params }: { params: Promise<{ taskId: s
             <Task label="Submit" value={task.submitTask} />
             <Task label="Review" value={task.reviewTask} />
           </div>
-          <form className="mt-6 grid gap-4">
+          <form action={isLiveTask ? submitDtuTask.bind(null, taskId) : undefined} className="mt-6 grid gap-4">
             <label className="grid gap-1.5 text-sm font-medium">
               Student note
-              <textarea className="input min-h-28" placeholder="Write what you completed and where you got stuck." />
+              <textarea
+                className="input min-h-28"
+                disabled={!isLiveTask}
+                name="submission_text"
+                placeholder="Write what you completed and where you got stuck."
+              />
             </label>
             <label className="grid gap-1.5 text-sm font-medium">
               Proof image/PDF URL
-              <input className="input" placeholder="Paste Supabase Storage file URL for v1" />
+              <input
+                className="input"
+                disabled={!isLiveTask}
+                name="file_url"
+                placeholder="Paste Supabase Storage file URL for v1"
+              />
             </label>
-            <button className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">
-              Submit task
+            <button
+              className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={!isLiveTask}
+            >
+              {isLiveTask ? "Submit task" : "Preview only"}
             </button>
           </form>
         </Card>
@@ -136,6 +151,64 @@ async function getSupabaseTaskView(taskId: string): Promise<TaskView | null> {
     dueAt: task.due_at ?? "Not set",
     status,
   };
+}
+
+async function submitDtuTask(taskId: string, formData: FormData) {
+  "use server";
+
+  if (!isUuid(taskId)) {
+    return;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const profile = await getCurrentProfile();
+  if (!profile || profile.role !== "student") {
+    return;
+  }
+
+  const { data: student, error: studentError } = await supabase
+    .from("students")
+    .select("id")
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+
+  if (studentError || !student) {
+    return;
+  }
+
+  const { data: task, error: taskError } = await supabase
+    .from("daily_task_units")
+    .select("id")
+    .eq("id", taskId)
+    .maybeSingle();
+
+  if (taskError || !task) {
+    return;
+  }
+
+  const submissionText = String(formData.get("submission_text") ?? "").trim();
+  const fileUrl = String(formData.get("file_url") ?? "").trim();
+  const now = new Date().toISOString();
+
+  const { error } = await supabase.from("dtu_submissions").upsert(
+    {
+      dtu_id: task.id,
+      student_id: student.id,
+      submission_text: submissionText || null,
+      file_url: fileUrl || null,
+      status: "submitted",
+      submitted_at: now,
+    },
+    { onConflict: "dtu_id,student_id" },
+  );
+
+  if (!error) {
+    revalidatePath(`/dashboard/student/tasks/${taskId}`);
+  }
 }
 
 function Row({ label, value }: { label: string; value: string }) {

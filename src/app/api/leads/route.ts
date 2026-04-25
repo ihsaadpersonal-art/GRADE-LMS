@@ -49,19 +49,23 @@ export async function POST(request: Request) {
 
 function buildLeadMessage(data: LeadInput) {
   const baseMessage = data.message?.trim() ?? "";
+  const paymentMethod = data.paymentMethod?.trim() ?? "";
+  const transactionId = data.transactionId?.trim() ?? "";
+  const paymentSenderNumber = data.paymentSenderNumber?.trim() ?? "";
+  const proofUrl = data.proofUrl?.trim() ?? "";
+
   const paymentLines = [
-    data.paymentMethod ? `Method: ${data.paymentMethod}` : null,
-    data.transactionId?.trim() ? `Transaction ID: ${data.transactionId.trim()}` : null,
-    data.paymentSenderNumber?.trim() ? `Sender number: ${data.paymentSenderNumber.trim()}` : null,
-    data.proofUrl?.trim() ? `Proof URL: ${data.proofUrl.trim()}` : null,
-  ].filter(Boolean);
+    paymentMethod ? `Method: ${paymentMethod}` : null,
+    transactionId ? `Transaction ID: ${transactionId}` : null,
+    paymentSenderNumber ? `Sender number: ${paymentSenderNumber}` : null,
+    proofUrl ? `Proof URL: ${proofUrl}` : null,
+  ].filter((line): line is string => Boolean(line));
 
   if (paymentLines.length === 0) {
     return baseMessage || null;
   }
 
-  return [
-    baseMessage || null,
-    ["Payment information:", ...paymentLines].join("\n"),
-  ].filter(Boolean).join("\n\n");
+  const paymentInformation = ["Payment information:", ...paymentLines].join("\n");
+
+  return [baseMessage, paymentInformation].filter(Boolean).join("\n\n");
 }

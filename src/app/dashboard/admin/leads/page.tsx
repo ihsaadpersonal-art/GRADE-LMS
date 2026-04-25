@@ -183,6 +183,22 @@ export default async function AdminLeadsPage() {
                           </form>
                         </div>
                       ) : null}
+                      {canVerifyPayment(lead) ? (
+                        <div className="border-t border-border pt-4">
+                          <form action={verifyLeadPayment} className="space-y-2">
+                            <input type="hidden" name="leadId" value={lead.id} />
+                            <button
+                              type="submit"
+                              className="w-full rounded-xl border border-primary/25 bg-[#e7f4e7] px-4 py-3 text-sm font-semibold text-primary transition hover:bg-[#dceedd] sm:w-auto"
+                            >
+                              Mark payment verified
+                            </button>
+                            <p className="text-xs leading-5 text-muted-foreground">
+                              Updates the Bridge enrolment payment status to paid.
+                            </p>
+                          </form>
+                        </div>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="whitespace-normal break-words text-sm text-muted-foreground">
@@ -363,6 +379,110 @@ async function sendLeadInvitation(formData: FormData) {
       status: error ? lead.status : "payment_pending",
       notes: appendLeadNote(lead.notes, note),
       updated_at: sentAt,
+    })
+    .eq("id", lead.id);
+
+  revalidatePath("/dashboard/admin/leads");
+}
+
+async function verifyLeadPayment(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = createSupabaseServiceClient();
+  if (!supabase) {
+    return;
+  }
+
+  const leadId = String(formData.get("leadId") ?? "");
+  if (!leadId) {
+    return;
+  }
+
+  const verifiedAt = new Date().toISOString();
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, email, status, notes")
+    .eq("id", leadId)
+    .single();
+
+  if (leadError || !lead?.email || lead.status !== "payment_pending") {
+    return;
+  }
+
+  const adminLabel = profile.full_name || profile.email || "admin";
+  const missingAccessNote =
+    `Payment verification could not be completed on ${verifiedAt} because LMS access/enrolment was not found. ` +
+    "Prepare LMS access before marking payment verified.";
+
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", lead.email)
+    .maybeSingle();
+
+  if (!profileRow) {
+    await appendLeadNoteAndRevalidate(supabase, lead.id, lead.notes, missingAccessNote, verifiedAt);
+    return;
+  }
+
+  const { data: student } = await supabase
+    .from("students")
+    .select("id")
+    .eq("profile_id", profileRow.id)
+    .maybeSingle();
+
+  if (!student) {
+    await appendLeadNoteAndRevalidate(supabase, lead.id, lead.notes, missingAccessNote, verifiedAt);
+    return;
+  }
+
+  const { data: enrollment } = await supabase
+    .from("enrollments")
+    .select("id")
+    .eq("student_id", student.id)
+    .eq("course_id", bridgeCourseId)
+    .eq("batch_id", bridgeBatchId)
+    .maybeSingle();
+
+  if (!enrollment) {
+    await appendLeadNoteAndRevalidate(supabase, lead.id, lead.notes, missingAccessNote, verifiedAt);
+    return;
+  }
+
+  const { error: enrollmentError } = await supabase
+    .from("enrollments")
+    .update({
+      payment_status: "paid",
+      enrollment_status: "active",
+    })
+    .eq("id", enrollment.id);
+
+  if (enrollmentError) {
+    await appendLeadNoteAndRevalidate(
+      supabase,
+      lead.id,
+      lead.notes,
+      `Payment verification could not be completed on ${verifiedAt}: ${getSafeErrorMessage(enrollmentError.message)}`,
+      verifiedAt,
+    );
+    return;
+  }
+
+  const verificationNote =
+    `Payment manually verified by ${adminLabel} on ${verifiedAt}. ` +
+    "Bridge enrolment payment_status set to paid.";
+
+  await supabase
+    .from("leads")
+    .update({
+      status: "enrolled",
+      notes: appendLeadNote(lead.notes, verificationNote),
+      updated_at: verifiedAt,
     })
     .eq("id", lead.id);
 
@@ -588,8 +708,30 @@ function canSendInvitation(lead: LeadView) {
   return Boolean(lead.email && canInviteLeadStatus(lead.status) && !hasInvitationSentNote(lead.notes));
 }
 
+function canVerifyPayment(lead: LeadView) {
+  return Boolean(lead.email && lead.status === "payment_pending" && lead.notes?.includes("LMS access prepared"));
+}
+
 function appendLeadNote(existingNotes: string | null, note: string) {
   return [existingNotes?.trim() || null, note].filter(Boolean).join("\n\n");
+}
+
+async function appendLeadNoteAndRevalidate(
+  supabase: NonNullable<ReturnType<typeof createSupabaseServiceClient>>,
+  leadId: string,
+  existingNotes: string | null,
+  note: string,
+  updatedAt: string,
+) {
+  await supabase
+    .from("leads")
+    .update({
+      notes: appendLeadNote(existingNotes, note),
+      updated_at: updatedAt,
+    })
+    .eq("id", leadId);
+
+  revalidatePath("/dashboard/admin/leads");
 }
 
 function getStudentCode(authUserId: string) {

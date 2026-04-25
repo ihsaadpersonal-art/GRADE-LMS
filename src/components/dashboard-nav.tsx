@@ -11,6 +11,7 @@ import {
   Trophy,
   Users,
 } from "lucide-react";
+import { LogoutButton } from "@/components/logout-button";
 import { Container } from "@/components/ui";
 
 const nav = {
@@ -56,12 +57,15 @@ export function DashboardShell({
             </p>
             <h1 className="mt-1 text-3xl font-semibold leading-tight">{title}</h1>
           </div>
-          <Link
-            href="/"
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-primary hover:bg-muted"
-          >
-            Public site
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Link
+              href="/"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-primary hover:bg-muted"
+            >
+              Public site
+            </Link>
+            <LogoutButton />
+          </div>
         </Container>
       </header>
       <Container className="grid gap-6 py-6 lg:grid-cols-[240px_minmax(0,1fr)]">

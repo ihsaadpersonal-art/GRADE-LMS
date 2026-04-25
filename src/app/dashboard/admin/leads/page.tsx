@@ -4,6 +4,7 @@ import { getCurrentProfile } from "@/lib/auth";
 import { leads } from "@/lib/sample-data";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import type { ReactNode } from "react";
 
 const leadStatuses = ["new", "contacted", "interested", "payment_pending", "enrolled", "lost"] as const;
 
@@ -39,65 +40,96 @@ export default async function AdminLeadsPage() {
         <p className="mt-2 text-sm text-muted-foreground">
           {view.isLive ? "Showing live enrolment requests from Supabase." : "Showing sample lead data preview."}
         </p>
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-sm">
-            <thead className="text-muted-foreground">
-              <tr>
-                <th className="py-3">Student</th>
-                <th>Parent</th>
-                <th>Phones</th>
-                <th>WhatsApp</th>
-                <th>Email</th>
-                <th>Level</th>
-                <th>Version</th>
-                <th>Institution</th>
-                <th>Programme</th>
-                <th>Mode</th>
-                <th>Source</th>
-                <th>Status</th>
-                <th>Message / Notes</th>
-                <th>Update</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view.leads.map((lead) => (
-                <tr key={lead.id} className="border-t border-border">
-                  <td className="py-3 font-semibold">{lead.studentName}</td>
-                  <td>{lead.parentName}</td>
-                  <td>
-                    <div>{lead.studentPhone}</div>
-                    <div className="text-muted-foreground">{lead.parentPhone}</div>
-                  </td>
-                  <td>{lead.whatsapp}</td>
-                  <td>{lead.email ?? "Not provided"}</td>
-                  <td>{lead.currentLevel}</td>
-                  <td>{lead.version}</td>
-                  <td>{lead.institution}</td>
-                  <td>{lead.interestedProgramme}</td>
-                  <td>{lead.preferredMode}</td>
-                  <td>{lead.source}</td>
-                  <td>
+        <div className="mt-6 grid gap-4">
+          {view.leads.map((lead) => (
+            <article
+              key={lead.id}
+              className="rounded-2xl border border-border bg-background p-4 shadow-sm sm:p-5"
+            >
+              <div className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="whitespace-normal break-words text-lg font-semibold text-foreground">
+                      {lead.studentName}
+                    </h3>
                     <StatusBadge tone={getLeadStatusTone(lead.status)}>
                       {formatLeadStatus(lead.status)}
                     </StatusBadge>
-                  </td>
-                  <td>
-                    <div>{lead.message ?? "No message"}</div>
-                    {lead.notes ? <div className="mt-1 text-muted-foreground">{lead.notes}</div> : null}
-                  </td>
-                  <td className="min-w-64">
-                    {view.isLive ? (
-                      <form action={updateLeadStatus} className="space-y-2">
-                        <input type="hidden" name="leadId" value={lead.id} />
-                        <label className="sr-only" htmlFor={`status-${lead.id}`}>
+                  </div>
+                  <p className="mt-1 whitespace-normal break-words text-sm text-muted-foreground">
+                    Parent: <span className="font-medium text-foreground">{lead.parentName}</span>
+                  </p>
+                </div>
+                <div className="shrink-0 rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+                  {lead.createdAt ? formatDateTime(lead.createdAt) : "Preview lead"}
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1fr]">
+                <LeadSection title="Contact">
+                  <DetailGrid>
+                    <DetailItem label="Student phone" value={lead.studentPhone} />
+                    <DetailItem label="Parent phone" value={lead.parentPhone} />
+                    <DetailItem label="WhatsApp" value={lead.whatsapp} />
+                    <DetailItem label="Email" value={lead.email ?? "Not provided"} />
+                  </DetailGrid>
+                </LeadSection>
+
+                <LeadSection title="Academic / lead info">
+                  <DetailGrid>
+                    <DetailItem label="Current level" value={lead.currentLevel} />
+                    <DetailItem label="Version" value={lead.version} />
+                    <DetailItem label="Institution" value={lead.institution} />
+                    <DetailItem label="Interested programme" value={lead.interestedProgramme} />
+                    <DetailItem label="Preferred mode" value={lead.preferredMode} />
+                    <DetailItem label="Source" value={lead.source} />
+                  </DetailGrid>
+                </LeadSection>
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
+                <LeadSection title="Message / notes">
+                  <div className="space-y-4">
+                    <TextBlock label="Original message" value={lead.message ?? "No message provided."} />
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                        Internal notes
+                      </p>
+                      {view.isLive ? (
+                        <textarea
+                          form={`lead-form-${lead.id}`}
+                          id={`notes-${lead.id}`}
+                          name="notes"
+                          defaultValue={lead.notes ?? ""}
+                          rows={4}
+                          placeholder="Add admin notes"
+                          className="mt-2 w-full resize-y rounded-xl border border-border bg-card px-3 py-2 text-sm leading-6 text-foreground"
+                        />
+                      ) : (
+                        <p className="mt-2 whitespace-normal break-words rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
+                          {lead.notes ?? "No internal notes yet."}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </LeadSection>
+
+                <LeadSection title="Actions">
+                  {view.isLive ? (
+                    <form id={`lead-form-${lead.id}`} action={updateLeadStatus} className="space-y-3">
+                      <input type="hidden" name="leadId" value={lead.id} />
+                      <div>
+                        <label
+                          className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                          htmlFor={`status-${lead.id}`}
+                        >
                           Lead status
                         </label>
                         <select
                           id={`status-${lead.id}`}
                           name="status"
                           defaultValue={lead.status}
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                          className="mt-2 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"
                         >
                           {leadStatuses.map((status) => (
                             <option key={status} value={status}>
@@ -105,33 +137,23 @@ export default async function AdminLeadsPage() {
                             </option>
                           ))}
                         </select>
-                        <label className="sr-only" htmlFor={`notes-${lead.id}`}>
-                          Lead notes
-                        </label>
-                        <textarea
-                          id={`notes-${lead.id}`}
-                          name="notes"
-                          defaultValue={lead.notes ?? ""}
-                          rows={2}
-                          placeholder="Add admin notes"
-                          className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                        />
-                        <button
-                          type="submit"
-                          className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-[#104d36]"
-                        >
-                          Save lead
-                        </button>
-                      </form>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">Live Supabase data required to update.</p>
-                    )}
-                  </td>
-                  <td>{lead.createdAt ? formatDateTime(lead.createdAt) : "Preview"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      </div>
+                      <button
+                        type="submit"
+                        className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-[#104d36] sm:w-auto"
+                      >
+                        Save lead update
+                      </button>
+                    </form>
+                  ) : (
+                    <p className="whitespace-normal break-words text-sm text-muted-foreground">
+                      Live Supabase data is required to update lead status or notes.
+                    </p>
+                  )}
+                </LeadSection>
+              </div>
+            </article>
+          ))}
         </div>
       </Card>
     </DashboardShell>
@@ -271,4 +293,37 @@ function getLeadStatusTone(status: string) {
   }
 
   return "warning";
+}
+
+function LeadSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-border bg-muted/40 p-4">
+      <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function DetailGrid({ children }: { children: ReactNode }) {
+  return <dl className="grid gap-3 sm:grid-cols-2">{children}</dl>;
+}
+
+function DetailItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border bg-card p-3">
+      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</dt>
+      <dd className="mt-1 whitespace-normal break-words text-sm font-medium leading-6 text-foreground">{value}</dd>
+    </div>
+  );
+}
+
+function TextBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{label}</p>
+      <p className="mt-2 whitespace-normal break-words rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
+        {value}
+      </p>
+    </div>
+  );
 }

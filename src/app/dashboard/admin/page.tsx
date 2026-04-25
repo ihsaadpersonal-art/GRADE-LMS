@@ -331,10 +331,116 @@ async function reviewDtuSubmission(formData: FormData) {
       reviewed_by: profile.id,
       reviewed_at: new Date().toISOString(),
     })
-    .eq("id", submissionId);
+    .eq("id", submissionId)
+    .select("id, student_id, dtu_id")
+    .single();
 
   if (!error) {
+    await updateWeeklyGScoreAfterDtuReview(submissionId);
     revalidatePath("/dashboard/admin");
+  }
+}
+
+async function updateWeeklyGScoreAfterDtuReview(submissionId: string) {
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const { data: submission, error: submissionError } = await supabase
+    .from("dtu_submissions")
+    .select("student_id, dtu_id, score")
+    .eq("id", submissionId)
+    .maybeSingle();
+
+  if (submissionError || !submission) {
+    return;
+  }
+
+  const { data: dtu, error: dtuError } = await supabase
+    .from("daily_task_units")
+    .select("course_id, batch_id")
+    .eq("id", submission.dtu_id)
+    .maybeSingle();
+
+  if (dtuError || !dtu) {
+    return;
+  }
+
+  // Phase 1 uses the current Monday-Sunday week as the GScore reporting window.
+  const { weekStart, weekEnd } = getCurrentWeekRange();
+  let existingQuery = supabase
+    .from("gscores")
+    .select("weekly_test_score, streak_points, improvement_bonus")
+    .eq("student_id", submission.student_id)
+    .eq("course_id", dtu.course_id)
+    .eq("week_start", weekStart);
+
+  existingQuery = dtu.batch_id ? existingQuery.eq("batch_id", dtu.batch_id) : existingQuery.is("batch_id", null);
+  const { data: existingGScore } = await existingQuery.maybeSingle();
+
+  let dtuQuery = supabase
+    .from("daily_task_units")
+    .select("id")
+    .eq("course_id", dtu.course_id)
+    .gte("task_date", weekStart)
+    .lte("task_date", weekEnd);
+
+  dtuQuery = dtu.batch_id ? dtuQuery.or(`batch_id.is.null,batch_id.eq.${dtu.batch_id}`) : dtuQuery.is("batch_id", null);
+  const { data: weeklyDtus, error: weeklyDtusError } = await dtuQuery;
+  const weeklyDtuIds = weeklyDtus?.map((task) => task.id) ?? [];
+
+  const { data: weeklySubmissions } =
+    !weeklyDtusError && weeklyDtuIds.length
+      ? await supabase
+          .from("dtu_submissions")
+          .select("status, score")
+          .eq("student_id", submission.student_id)
+          .in("dtu_id", weeklyDtuIds)
+      : { data: null };
+
+  const submittedCount =
+    weeklySubmissions?.filter((item) => ["submitted", "late", "reviewed"].includes(item.status)).length ?? 1;
+  const totalAssigned = weeklyDtuIds.length || submittedCount || 1;
+  const submissionRate = Math.round((submittedCount / totalAssigned) * 100);
+  const reviewedScores = (weeklySubmissions ?? [])
+    .map((item) => item.score)
+    .filter((score): score is number => typeof score === "number");
+  const teacherScore =
+    reviewedScores.length > 0
+      ? Math.round((reviewedScores.reduce((sum, score) => sum + score, 0) / reviewedScores.length) * 10)
+      : Math.round(Number(submission.score ?? 0) * 10);
+  const weeklyTestScore = existingGScore?.weekly_test_score ?? 0;
+  const streakPoints = existingGScore?.streak_points ?? 0;
+  const improvementBonus = existingGScore?.improvement_bonus ?? 0;
+
+  // Simple Phase 1 formula: DTU completion and reviewed work carry most weight; quiz/streak/bonus are preserved when present.
+  const totalGscore = Math.round(
+    submissionRate * 0.35 + teacherScore * 0.35 + weeklyTestScore * 0.2 + streakPoints * 0.05 + improvementBonus * 0.05,
+  );
+  const now = new Date().toISOString();
+
+  const payload = {
+    student_id: submission.student_id,
+    course_id: dtu.course_id,
+    batch_id: dtu.batch_id,
+    week_start: weekStart,
+    week_end: weekEnd,
+    submission_rate: submissionRate,
+    teacher_score: teacherScore,
+    weekly_test_score: weeklyTestScore,
+    streak_points: streakPoints,
+    improvement_bonus: improvementBonus,
+    total_gscore: totalGscore,
+    updated_at: now,
+  };
+
+  const { error } = await supabase
+    .from("gscores")
+    .upsert(payload, { onConflict: "student_id,course_id,batch_id,week_start" });
+
+  if (error) {
+    console.error("GScore update failed after DTU review", error.message);
   }
 }
 
@@ -509,4 +615,19 @@ function formatDateTime(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function getCurrentWeekRange() {
+  const today = new Date();
+  const day = today.getUTCDay();
+  const daysSinceMonday = day === 0 ? 6 : day - 1;
+  const monday = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  monday.setUTCDate(monday.getUTCDate() - daysSinceMonday);
+  const sunday = new Date(monday);
+  sunday.setUTCDate(monday.getUTCDate() + 6);
+
+  return {
+    weekStart: monday.toISOString().slice(0, 10),
+    weekEnd: sunday.toISOString().slice(0, 10),
+  };
 }

@@ -8,6 +8,9 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 const leadStatuses = ["new", "contacted", "interested", "payment_pending", "enrolled", "lost"] as const;
+const bridgeCourseId = "11111111-1111-1111-1111-111111111111";
+const bridgeBatchId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+const bridgeBatchName = "Bridge Science Batch A";
 
 type LeadStatus = (typeof leadStatuses)[number];
 
@@ -296,7 +299,7 @@ async function sendLeadInvitation(formData: FormData) {
 
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id, student_name, email, status, notes")
+    .select("id, student_name, parent_name, student_phone, parent_phone, whatsapp, email, version, institution, status, notes")
     .eq("id", leadId)
     .single();
 
@@ -335,9 +338,24 @@ async function sendLeadInvitation(formData: FormData) {
   });
 
   const adminLabel = profile.full_name || profile.email || "admin";
-  const note = error
+  let note = error
     ? `Invitation failed on ${sentAt}: ${getSafeErrorMessage(error.message)}`
     : `Invitation email sent to ${lead.email} by ${adminLabel} on ${sentAt}. Auth user ID: ${data.user?.id ?? "not returned"}`;
+
+  if (!error && data.user?.id) {
+    const accessResult = await prepareLmsAccessForInvitedLead({
+      authUserId: data.user.id,
+      lead: {
+        ...lead,
+        email: lead.email,
+      },
+      supabase,
+    });
+
+    note = accessResult.ok
+      ? `${note}\nLMS access prepared: profile, student, and active Bridge enrolment created.`
+      : `${note}\nInvitation was sent, but LMS access preparation failed: ${accessResult.error}`;
+  }
 
   await supabase
     .from("leads")
@@ -349,6 +367,103 @@ async function sendLeadInvitation(formData: FormData) {
     .eq("id", lead.id);
 
   revalidatePath("/dashboard/admin/leads");
+}
+
+async function prepareLmsAccessForInvitedLead({
+  authUserId,
+  lead,
+  supabase,
+}: {
+  authUserId: string;
+  lead: {
+    student_name: string;
+    parent_name: string;
+    student_phone: string;
+    parent_phone: string;
+    whatsapp: string;
+    email: string;
+    version: string;
+    institution: string;
+  };
+  supabase: NonNullable<ReturnType<typeof createSupabaseServiceClient>>;
+}) {
+  const now = new Date().toISOString();
+  const { error: profileError } = await supabase.from("profiles").upsert({
+    id: authUserId,
+    full_name: lead.student_name,
+    email: lead.email,
+    phone: lead.student_phone,
+    whatsapp: lead.whatsapp,
+    role: "student",
+    is_active: true,
+    updated_at: now,
+  });
+
+  if (profileError) {
+    return { ok: false, error: getSafeErrorMessage(profileError.message) };
+  }
+
+  const { data: existingStudent, error: studentLookupError } = await supabase
+    .from("students")
+    .select("id")
+    .eq("profile_id", authUserId)
+    .maybeSingle();
+
+  if (studentLookupError) {
+    return { ok: false, error: getSafeErrorMessage(studentLookupError.message) };
+  }
+
+  let studentId = existingStudent?.id ?? null;
+
+  if (!studentId) {
+    const { data: insertedStudent, error: studentInsertError } = await supabase
+      .from("students")
+      .insert({
+        profile_id: authUserId,
+        student_code: getStudentCode(authUserId),
+        version: getStudentVersion(lead.version),
+        class_level: "Post-SSC",
+        current_batch: bridgeBatchName,
+        institution: lead.institution,
+        guardian_name: lead.parent_name,
+        guardian_phone: lead.parent_phone,
+        guardian_whatsapp: lead.whatsapp,
+        guardian_email: lead.email,
+        consent_public_leaderboard: false,
+        status: "active",
+      })
+      .select("id")
+      .single();
+
+    if (studentInsertError || !insertedStudent) {
+      return {
+        ok: false,
+        error: getSafeErrorMessage(studentInsertError?.message ?? "Student record was not created."),
+      };
+    }
+
+    studentId = insertedStudent.id;
+  }
+
+  const { error: enrollmentError } = await supabase.from("enrollments").upsert(
+    {
+      student_id: studentId,
+      course_id: bridgeCourseId,
+      batch_id: bridgeBatchId,
+      enrollment_status: "active",
+      payment_status: "pending",
+      enrolled_at: now,
+    },
+    {
+      onConflict: "student_id,course_id,batch_id",
+    },
+  );
+
+  if (enrollmentError) {
+    return { ok: false, error: getSafeErrorMessage(enrollmentError.message) };
+  }
+
+  return { ok: true };
 }
 
 function getSampleLeads(): { isLive: boolean; leads: LeadView[] } {
@@ -475,6 +590,14 @@ function canSendInvitation(lead: LeadView) {
 
 function appendLeadNote(existingNotes: string | null, note: string) {
   return [existingNotes?.trim() || null, note].filter(Boolean).join("\n\n");
+}
+
+function getStudentCode(authUserId: string) {
+  return `GRADE-${authUserId.replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+}
+
+function getStudentVersion(version: string) {
+  return version === "English Version" ? "English Version" : "Bangla Version";
 }
 
 function getRequestOrigin(headersList: Headers) {

@@ -116,35 +116,54 @@ export default async function AdminLeadsPage() {
 
                 <LeadSection title="Actions">
                   {view.isLive ? (
-                    <form id={`lead-form-${lead.id}`} action={updateLeadStatus} className="space-y-3">
-                      <input type="hidden" name="leadId" value={lead.id} />
-                      <div>
-                        <label
-                          className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
-                          htmlFor={`status-${lead.id}`}
+                    <div className="space-y-4">
+                      <form id={`lead-form-${lead.id}`} action={updateLeadStatus} className="space-y-3">
+                        <input type="hidden" name="leadId" value={lead.id} />
+                        <div>
+                          <label
+                            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                            htmlFor={`status-${lead.id}`}
+                          >
+                            Lead status
+                          </label>
+                          <select
+                            id={`status-${lead.id}`}
+                            name="status"
+                            defaultValue={lead.status}
+                            className="mt-2 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"
+                          >
+                            {leadStatuses.map((status) => (
+                              <option key={status} value={status}>
+                                {formatLeadStatus(status)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-[#104d36] sm:w-auto"
                         >
-                          Lead status
-                        </label>
-                        <select
-                          id={`status-${lead.id}`}
-                          name="status"
-                          defaultValue={lead.status}
-                          className="mt-2 w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground"
-                        >
-                          {leadStatuses.map((status) => (
-                            <option key={status} value={status}>
-                              {formatLeadStatus(status)}
-                            </option>
-                          ))}
-                        </select>
+                          Save lead update
+                        </button>
+                      </form>
+                      <div className="border-t border-border pt-4">
+                        <form action={prepareLeadEnrolment} className="space-y-2">
+                          <input type="hidden" name="leadId" value={lead.id} />
+                          <button
+                            type="submit"
+                            disabled={!lead.email}
+                            className="w-full rounded-xl border border-primary/25 bg-card px-4 py-3 text-sm font-semibold text-primary transition hover:bg-muted disabled:cursor-not-allowed disabled:border-border disabled:text-muted-foreground disabled:opacity-70 sm:w-auto"
+                          >
+                            Prepare enrolment
+                          </button>
+                          <p className="text-xs leading-5 text-muted-foreground">
+                            {lead.email
+                              ? "Marks this lead as ready for course, batch, and invitation review."
+                              : "Add an email before preparing this lead for invitation."}
+                          </p>
+                        </form>
                       </div>
-                      <button
-                        type="submit"
-                        className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-[#104d36] sm:w-auto"
-                      >
-                        Save lead update
-                      </button>
-                    </form>
+                    </div>
                   ) : (
                     <p className="whitespace-normal break-words text-sm text-muted-foreground">
                       Live Supabase data is required to update lead status or notes.
@@ -189,6 +208,53 @@ async function updateLeadStatus(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", leadId);
+
+  revalidatePath("/dashboard/admin/leads");
+}
+
+async function prepareLeadEnrolment(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const leadId = String(formData.get("leadId") ?? "");
+  if (!leadId) {
+    return;
+  }
+
+  const { data: lead, error } = await supabase
+    .from("leads")
+    .select("id, email, status, notes")
+    .eq("id", leadId)
+    .single();
+
+  if (error || !lead?.email) {
+    return;
+  }
+
+  const preparedAt = new Date().toISOString();
+  const adminLabel = profile.full_name || profile.email || "admin";
+  const prepareNote =
+    `Prepared for enrolment/invitation by ${adminLabel} on ${preparedAt}. ` +
+    "Course and batch should be confirmed before sending invitation.";
+  const notes = [lead.notes?.trim() || null, prepareNote].filter(Boolean).join("\n\n");
+
+  await supabase
+    .from("leads")
+    .update({
+      status: getPreparedLeadStatus(lead.status),
+      notes,
+      updated_at: preparedAt,
+    })
+    .eq("id", lead.id);
 
   revalidatePath("/dashboard/admin/leads");
 }
@@ -293,6 +359,14 @@ function getLeadStatusTone(status: string) {
   }
 
   return "warning";
+}
+
+function getPreparedLeadStatus(status: string): LeadStatus {
+  if (status === "new" || status === "contacted") {
+    return "interested";
+  }
+
+  return "payment_pending";
 }
 
 function LeadSection({ title, children }: { title: string; children: ReactNode }) {

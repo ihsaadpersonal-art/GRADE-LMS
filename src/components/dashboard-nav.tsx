@@ -1,5 +1,16 @@
 import Link from "next/link";
-import { BarChart3, BookOpen, ClipboardCheck, CreditCard, FileText, Gauge, Home, ListChecks, Trophy, Users } from "lucide-react";
+import {
+  BarChart3,
+  BookOpen,
+  ClipboardCheck,
+  CreditCard,
+  FileText,
+  Gauge,
+  Home,
+  ListChecks,
+  Trophy,
+  Users,
+} from "lucide-react";
 import { Container } from "@/components/ui";
 
 const nav = {
@@ -36,28 +47,33 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card">
-        <Container className="flex min-h-16 flex-col gap-4 py-4 md:flex-row md:items-center md:justify-between">
+    <div className="min-h-screen bg-[#f7f5ed]">
+      <header className="border-b border-border bg-card/95 shadow-[0_8px_28px_rgba(32,48,37,0.06)] backdrop-blur">
+        <Container className="flex min-h-20 flex-col gap-4 py-5 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase text-primary">GRADE LMS</p>
-            <h1 className="text-2xl font-semibold">{title}</h1>
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">
+              GRADE LMS
+            </p>
+            <h1 className="mt-1 text-3xl font-semibold leading-tight">{title}</h1>
           </div>
-          <Link href="/" className="text-sm font-semibold text-primary hover:underline">
+          <Link
+            href="/"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-primary hover:bg-muted"
+          >
             Public site
           </Link>
         </Container>
       </header>
       <Container className="grid gap-6 py-6 lg:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="lg:sticky lg:top-6 lg:self-start">
-          <nav className="grid gap-2 rounded-lg border border-border bg-card p-2">
+          <nav className="grid gap-2 rounded-2xl border border-border bg-card p-2 shadow-[0_18px_45px_rgba(32,48,37,0.06)]">
             {nav[role].map((item) => {
               const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className="flex min-h-10 items-center gap-2 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
                 >
                   <Icon className="size-4" aria-hidden="true" />
                   {item.label}

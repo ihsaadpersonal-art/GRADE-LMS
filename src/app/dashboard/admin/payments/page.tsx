@@ -9,7 +9,7 @@ export default function AdminPaymentsPage() {
       <Card>
         <h2 className="text-xl font-semibold">Manual Payments</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Automation stays out of scope for v1. Admin verifies transaction ID and activates enrolment.
+          Verify the transaction details, confirm the amount, and activate enrolment when payment is approved.
         </p>
         <div className="mt-5 grid gap-4">
           {payments.map((payment) => (

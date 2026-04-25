@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f7f8f4;
-  --foreground: #17201b;
-  --card: #ffffff;
-  --muted: #eef1e8;
-  --muted-foreground: #5d6b61;
-  --border: #dce3d7;
-  --primary: #1b5f46;
+  --background: #f8f5ed;
+  --foreground: #17231c;
+  --card: #fffef9;
+  --muted: #eef3e7;
+  --muted-foreground: #647166;
+  --border: #dbe4d4;
+  --primary: #155f43;
   --primary-foreground: #f8fff9;
-  --accent: #c98b2e;
+  --accent: #c5933f;
   --accent-foreground: #21170b;
   --danger: #b93c3c;
 }
@@ -34,6 +34,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -50,17 +51,32 @@ textarea {
 }
 
 .input {
-  min-height: 2.75rem;
+  min-height: 3rem;
   width: 100%;
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   border: 1px solid var(--border);
-  background: white;
-  padding: 0.6rem 0.75rem;
+  background: #fffef9;
+  padding: 0.72rem 0.9rem;
   color: var(--foreground);
   outline: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
 }
 
 .input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(27, 95, 70, 0.12);
+}
+
+.input::placeholder {
+  color: #94a095;
+}
+
+.soft-grid {
+  background-image:
+    linear-gradient(rgba(21, 95, 67, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(21, 95, 67, 0.055) 1px, transparent 1px);
+  background-size: 28px 28px;
 }

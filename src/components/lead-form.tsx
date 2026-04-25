@@ -20,6 +20,10 @@ const defaultValues: LeadInput = {
   preferredMode: "online",
   source: "Facebook",
   message: "",
+  paymentMethod: "",
+  transactionId: "",
+  paymentSenderNumber: "",
+  proofUrl: "",
 };
 
 export function LeadForm({ programme = defaultValues.interestedProgramme }: { programme?: string }) {
@@ -134,6 +138,34 @@ export function LeadForm({ programme = defaultValues.interestedProgramme }: { pr
           placeholder="Share preferred batch time, questions, or student needs."
         />
       </Field>
+      <div className="rounded-2xl border border-border bg-muted/40 p-4">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Payment verification optional</p>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            If you have already paid, share the transaction details so our team can verify it manually.
+          </p>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <Field label="Payment method" error={errors.paymentMethod?.message}>
+            <select {...register("paymentMethod")} className="input">
+              <option value="">Select if paid</option>
+              <option value="bKash">bKash</option>
+              <option value="Nagad">Nagad</option>
+              <option value="Bank">Bank</option>
+              <option value="Other">Other</option>
+            </select>
+          </Field>
+          <Field label="Transaction ID" error={errors.transactionId?.message}>
+            <input {...register("transactionId")} className="input" placeholder="TX123 or bank reference" />
+          </Field>
+          <Field label="Payment sender number" error={errors.paymentSenderNumber?.message}>
+            <input {...register("paymentSenderNumber")} className="input" placeholder="01XXXXXXXXX" />
+          </Field>
+          <Field label="Payment proof URL" error={errors.proofUrl?.message}>
+            <input {...register("proofUrl")} className="input" placeholder="Link to screenshot or receipt" />
+          </Field>
+        </div>
+      </div>
       {status !== "idle" ? (
         <div
           className={

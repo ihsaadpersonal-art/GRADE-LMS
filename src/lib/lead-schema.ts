@@ -14,6 +14,10 @@ export const leadSchema = z.object({
   preferredMode: z.enum(["online", "offline", "hybrid"]),
   source: z.string().min(2, "Source is required"),
   message: z.string().max(1000).optional(),
+  paymentMethod: z.enum(["bKash", "Nagad", "Bank", "Other"]).optional().or(z.literal("")),
+  transactionId: z.string().max(120).optional(),
+  paymentSenderNumber: z.string().max(30).optional(),
+  proofUrl: z.string().url("Enter a valid proof URL").optional().or(z.literal("")),
 });
 
 export type LeadInput = z.infer<typeof leadSchema>;

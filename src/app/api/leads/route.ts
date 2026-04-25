@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { leadSchema } from "@/lib/lead-schema";
+import { leadSchema, type LeadInput } from "@/lib/lead-schema";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = createSupabaseServiceClient();
+  const message = buildLeadMessage(parsed.data);
 
   if (supabase) {
     const { error } = await supabase.from("leads").insert({
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
       interested_programme: parsed.data.interestedProgramme,
       preferred_mode: parsed.data.preferredMode,
       source: parsed.data.source,
-      message: parsed.data.message || null,
+      message,
       status: "new",
     });
 
@@ -44,4 +45,23 @@ export async function POST(request: Request) {
       ? "Lead saved."
       : "Lead validated locally. Add Supabase env vars to persist it.",
   });
+}
+
+function buildLeadMessage(data: LeadInput) {
+  const baseMessage = data.message?.trim() ?? "";
+  const paymentLines = [
+    data.paymentMethod ? `Method: ${data.paymentMethod}` : null,
+    data.transactionId?.trim() ? `Transaction ID: ${data.transactionId.trim()}` : null,
+    data.paymentSenderNumber?.trim() ? `Sender number: ${data.paymentSenderNumber.trim()}` : null,
+    data.proofUrl?.trim() ? `Proof URL: ${data.proofUrl.trim()}` : null,
+  ].filter(Boolean);
+
+  if (paymentLines.length === 0) {
+    return baseMessage || null;
+  }
+
+  return [
+    baseMessage || null,
+    ["Payment information:", ...paymentLines].join("\n"),
+  ].filter(Boolean).join("\n\n");
 }

@@ -1,7 +1,9 @@
+import { Suspense } from "react";
 import { LogIn } from "lucide-react";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { ButtonLink, Card, Container, PageShell } from "@/components/ui";
+import { LoginForm } from "./login-form";
 
 export default function LoginPage() {
   return (
@@ -21,7 +23,17 @@ export default function LoginPage() {
               Log in to access your lessons, daily tasks, quizzes, progress dashboard, and
               GScore report.
             </p>
-            <div className="mt-7 grid gap-3">
+            <Suspense fallback={<div className="mt-7 h-44 rounded-2xl bg-muted" />}>
+              <LoginForm />
+            </Suspense>
+            <div className="my-7 flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Preview
+              </span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <div className="grid gap-3">
               <ButtonLink href="/dashboard/student">Student Dashboard Preview</ButtonLink>
               <ButtonLink href="/dashboard/admin" variant="secondary">
                 Admin Dashboard Preview

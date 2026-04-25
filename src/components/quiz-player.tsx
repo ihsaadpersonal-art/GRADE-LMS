@@ -57,11 +57,11 @@ export function QuizPlayer({
   return (
     <div className="grid gap-4">
       {quiz.questions.map((question, index) => (
-        <fieldset key={question.id} className="rounded-lg border border-border bg-card px-5 pt-7 pb-5">
-          <legend className="mb-4 font-semibold">
+        <fieldset key={question.id} className="rounded-lg border border-border bg-card p-5 sm:p-6">
+          <legend className="float-left mb-4 w-full text-base font-semibold">
             {index + 1}. {question.questionText}
           </legend>
-          <div className="grid gap-2">
+          <div className="clear-both grid gap-3">
             {[
               ["A", question.optionA],
               ["B", question.optionB],

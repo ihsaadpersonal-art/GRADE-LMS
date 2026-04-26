@@ -1,5 +1,4 @@
 import { DashboardShell } from "@/components/dashboard-nav";
-import { ReportCopy } from "@/components/report-copy";
 import { Card, MetricCard, StatusBadge } from "@/components/ui";
 import { getCurrentProfile } from "@/lib/auth";
 import { buildParentReportText } from "@/lib/grade";
@@ -170,6 +169,7 @@ async function getParentDashboardView(): Promise<ParentDashboardView> {
 function LiveParentDashboard({ reports }: { reports: LiveParentReport[] }) {
   const latest = reports[0];
   const reportText = latest.report_text ?? buildLiveReportText(latest);
+  const olderReports = reports.slice(1);
 
   return (
     <DashboardShell role="parent" title="Parent Dashboard">
@@ -204,39 +204,59 @@ function LiveParentDashboard({ reports }: { reports: LiveParentReport[] }) {
           />
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold">Report Summary</h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {formatDate(latest.week_start)} to {formatDate(latest.week_end)}
-                </p>
-              </div>
-              <StatusBadge tone="success">{formatStatus(latest.sent_status)}</StatusBadge>
+        <Card>
+          <div className="flex flex-col gap-3 border-b border-border pb-5 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <StatusBadge tone="success">Latest weekly report</StatusBadge>
+              <h2 className="mt-4 text-2xl font-semibold leading-tight">{latest.courseName}</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {formatDate(latest.week_start)} to {formatDate(latest.week_end)}
+              </p>
             </div>
-            <div className="mt-5 grid gap-4">
-              <SummaryItem label="Course" value={latest.courseName} />
-              <SummaryItem label="Batch" value={latest.batchName ?? "Not assigned"} />
-              <SummaryItem label="Focus this week" value={latest.focus_this_week ?? "Not provided"} />
-              <SummaryItem label="Focus next week" value={latest.focus_next_week ?? "Not provided"} />
-              <SummaryItem label="Academic feedback" value={latest.teacher_comment ?? "Not provided"} />
-            </div>
-          </Card>
+            <StatusBadge tone="neutral">{latest.batchName ?? "No batch assigned"}</StatusBadge>
+          </div>
 
-          <Card>
-            <h2 className="text-xl font-semibold">WhatsApp-Ready Report</h2>
-            <div className="mt-5">
-              <ReportCopy text={reportText} />
-            </div>
-          </Card>
-        </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryItem label="Tasks completed" value={`${latest.tasks_completed}/${latest.tasks_total}`} />
+            <SummaryItem label="Weekly test score" value={formatScore(latest.weekly_test_score)} />
+            <SummaryItem label="Previous week score" value={formatScore(latest.previous_week_score)} />
+            <SummaryItem
+              label="Leaderboard rank"
+              value={latest.leaderboard_rank ? `#${latest.leaderboard_rank}` : "Not provided"}
+            />
+          </div>
 
-        {reports.length > 1 ? (
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <SummaryItem label="Focus this week" value={latest.focus_this_week ?? "Not provided"} />
+            <SummaryItem label="Focus next week" value={latest.focus_next_week ?? "Not provided"} />
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-primary/15 bg-[#edf7ee] p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-primary">
+              Academic feedback
+            </p>
+            <p className="mt-3 whitespace-normal break-words text-sm leading-7 text-foreground">
+              {latest.teacher_comment ?? "No academic feedback has been added yet."}
+            </p>
+          </div>
+
+          {reportText ? (
+            <div className="mt-5 rounded-2xl border border-border bg-background p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                Report summary
+              </p>
+              <p className="mt-3 whitespace-pre-line break-words text-sm leading-7 text-foreground">
+                {reportText}
+              </p>
+            </div>
+          ) : null}
+        </Card>
+
+        {olderReports.length ? (
           <Card>
             <h2 className="text-xl font-semibold">Recent reports</h2>
             <div className="mt-5 grid gap-3">
-              {reports.slice(1).map((report) => (
+              {olderReports.map((report) => (
                 <div
                   key={report.id}
                   className="rounded-2xl border border-border bg-background p-4"
@@ -277,8 +297,35 @@ function SampleParentDashboard({ message }: { message?: string }) {
         </div>
         <Card>
           <h2 className="text-xl font-semibold">Weekly Report</h2>
-          <div className="mt-5">
-            <ReportCopy text={buildParentReportText(parentReport)} />
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <SummaryItem label="Course" value={parentReport.courseName} />
+            <SummaryItem label="Week" value={parentReport.week} />
+            <SummaryItem
+              label="Weekly test score"
+              value={`${parentReport.weeklyTestScore}%`}
+            />
+            <SummaryItem
+              label="Previous week score"
+              value={`${parentReport.previousWeekScore}%`}
+            />
+            <SummaryItem label="Focus this week" value={parentReport.focusThisWeek} />
+            <SummaryItem label="Focus next week" value={parentReport.focusNextWeek} />
+          </div>
+          <div className="mt-5 rounded-2xl border border-primary/15 bg-[#edf7ee] p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-primary">
+              Academic feedback
+            </p>
+            <p className="mt-3 whitespace-normal break-words text-sm leading-7 text-foreground">
+              {parentReport.teacherComment}
+            </p>
+          </div>
+          <div className="mt-5 rounded-2xl border border-border bg-background p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              Report summary
+            </p>
+            <p className="mt-3 whitespace-pre-line break-words text-sm leading-7 text-foreground">
+              {buildParentReportText(parentReport)}
+            </p>
           </div>
         </Card>
       </div>

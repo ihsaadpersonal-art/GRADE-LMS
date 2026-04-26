@@ -23,6 +23,7 @@ const nav = {
   admin: [
     { href: "/dashboard/admin", label: "Overview", icon: BarChart3 },
     { href: "/dashboard/admin/leads", label: "Leads", icon: Users },
+    { href: "/dashboard/admin/students", label: "Students", icon: Users },
     { href: "/dashboard/admin/payments", label: "Payments", icon: CreditCard },
     { href: "/dashboard/admin/reports", label: "Reports", icon: FileText },
     { href: "/dashboard/admin/at-risk", label: "At-Risk", icon: ListChecks },

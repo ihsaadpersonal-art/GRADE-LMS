@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { DashboardShell } from "@/components/dashboard-nav";
 import { Card, StatusBadge } from "@/components/ui";
 import { getCurrentProfile } from "@/lib/auth";
@@ -26,6 +27,10 @@ type StudentsPageView = {
   isLive: boolean;
   message?: string;
 };
+
+const studentStatuses = ["lead", "active", "paused", "completed", "dropped"] as const;
+const enrollmentStatuses = ["pending", "active", "completed", "dropped", "paused"] as const;
+const paymentStatuses = ["unpaid", "pending", "paid", "partial", "refunded"] as const;
 
 export default async function AdminStudentsPage() {
   const view = await getStudentsPageView();
@@ -162,6 +167,67 @@ async function getStudentsPageView(): Promise<StudentsPageView> {
   };
 }
 
+async function updateStudentStatus(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const studentId = String(formData.get("studentId") ?? "");
+  const status = String(formData.get("status") ?? "");
+
+  if (!studentId || !isStudentStatus(status)) {
+    return;
+  }
+
+  await supabase.from("students").update({ status }).eq("id", studentId);
+
+  revalidatePath("/dashboard/admin/students");
+}
+
+async function updateEnrollmentStatus(formData: FormData) {
+  "use server";
+
+  const profile = await getCurrentProfile();
+  if (!profile || !["admin", "super_admin"].includes(profile.role)) {
+    return;
+  }
+
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) {
+    return;
+  }
+
+  const enrollmentId = String(formData.get("enrollmentId") ?? "");
+  const enrollmentStatus = String(formData.get("enrollmentStatus") ?? "");
+  const paymentStatus = String(formData.get("paymentStatus") ?? "");
+
+  if (
+    !enrollmentId ||
+    !isEnrollmentStatus(enrollmentStatus) ||
+    !isPaymentStatus(paymentStatus)
+  ) {
+    return;
+  }
+
+  await supabase
+    .from("enrollments")
+    .update({
+      enrollment_status: enrollmentStatus,
+      payment_status: paymentStatus,
+    })
+    .eq("id", enrollmentId);
+
+  revalidatePath("/dashboard/admin/students");
+}
+
 function StudentCard({ item }: { item: StudentView }) {
   const { student, profile, enrollments } = item;
   const displayName = profile?.full_name || student.student_code;
@@ -186,7 +252,7 @@ function StudentCard({ item }: { item: StudentView }) {
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+      <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_1fr_320px]">
         <InfoSection title="Student">
           <InfoItem label="Email" value={profile?.email} />
           <InfoItem label="Phone" value={profile?.phone} />
@@ -200,6 +266,32 @@ function StudentCard({ item }: { item: StudentView }) {
           <InfoItem label="Guardian phone" value={student.guardian_phone} />
           <InfoItem label="Guardian WhatsApp" value={student.guardian_whatsapp} />
           <InfoItem label="Guardian email" value={student.guardian_email} />
+        </InfoSection>
+
+        <InfoSection title="Student status">
+          <form action={updateStudentStatus} className="grid gap-3 sm:col-span-2">
+            <input type="hidden" name="studentId" value={student.id} />
+            <label className="grid gap-2 text-sm font-semibold text-foreground">
+              Status
+              <select
+                className="min-h-11 rounded-xl border border-border bg-card px-3 text-sm text-foreground"
+                defaultValue={student.status}
+                name="status"
+              >
+                {studentStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {formatStatusLabel(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-[#104d36]"
+              type="submit"
+            >
+              Save student status
+            </button>
+          </form>
         </InfoSection>
       </div>
 
@@ -251,6 +343,47 @@ function EnrollmentCard({ enrollment }: { enrollment: StudentEnrollmentView }) {
         <InfoItem label="Enrolled at" value={formatDate(enrollment.enrolled_at)} />
         <InfoItem label="Course type" value={enrollment.course?.course_type} />
       </div>
+
+      <form
+        action={updateEnrollmentStatus}
+        className="mt-4 grid gap-3 border-t border-border pt-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end"
+      >
+        <input type="hidden" name="enrollmentId" value={enrollment.id} />
+        <label className="grid gap-2 text-sm font-semibold text-foreground">
+          Enrolment status
+          <select
+            className="min-h-11 rounded-xl border border-border bg-card px-3 text-sm text-foreground"
+            defaultValue={enrollment.enrollment_status}
+            name="enrollmentStatus"
+          >
+            {enrollmentStatuses.map((status) => (
+              <option key={status} value={status}>
+                {formatStatusLabel(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-2 text-sm font-semibold text-foreground">
+          Payment status
+          <select
+            className="min-h-11 rounded-xl border border-border bg-card px-3 text-sm text-foreground"
+            defaultValue={enrollment.payment_status}
+            name="paymentStatus"
+          >
+            {paymentStatuses.map((status) => (
+              <option key={status} value={status}>
+                {formatStatusLabel(status)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-primary/25 bg-card px-4 text-sm font-semibold text-primary transition hover:bg-muted"
+          type="submit"
+        >
+          Save enrolment
+        </button>
+      </form>
     </div>
   );
 }
@@ -281,6 +414,18 @@ function InfoItem({ label, value }: { label: string; value?: string | number | n
 
 function unique(values: (string | null)[]) {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function isStudentStatus(status: string): status is StudentRow["status"] {
+  return studentStatuses.includes(status as StudentRow["status"]);
+}
+
+function isEnrollmentStatus(status: string): status is EnrollmentRow["enrollment_status"] {
+  return enrollmentStatuses.includes(status as EnrollmentRow["enrollment_status"]);
+}
+
+function isPaymentStatus(status: string): status is EnrollmentRow["payment_status"] {
+  return paymentStatuses.includes(status as EnrollmentRow["payment_status"]);
 }
 
 function studentStatusTone(status: StudentRow["status"]) {
@@ -321,4 +466,8 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat("en-BD", {
     dateStyle: "medium",
   }).format(new Date(value));
+}
+
+function formatStatusLabel(status: string) {
+  return status.replaceAll("_", " ");
 }

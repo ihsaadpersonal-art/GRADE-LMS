@@ -95,26 +95,7 @@ export default async function AdminLeadsPage() {
                 <LeadSection title="Message / notes">
                   <div className="space-y-4">
                     <TextBlock label="Original message" value={lead.message ?? "No message provided."} />
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Internal notes
-                      </p>
-                      {view.isLive ? (
-                        <textarea
-                          form={`lead-form-${lead.id}`}
-                          id={`notes-${lead.id}`}
-                          name="notes"
-                          defaultValue={lead.notes ?? ""}
-                          rows={4}
-                          placeholder="Add admin notes"
-                          className="mt-2 w-full resize-y rounded-xl border border-border bg-card px-3 py-2 text-sm leading-6 text-foreground"
-                        />
-                      ) : (
-                        <p className="mt-2 whitespace-normal break-words rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
-                          {lead.notes ?? "No internal notes yet."}
-                        </p>
-                      )}
-                    </div>
+                    <TextBlock label="Internal notes" value={lead.notes ?? "No internal notes yet."} />
                   </div>
                 </LeadSection>
 
@@ -142,6 +123,22 @@ export default async function AdminLeadsPage() {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <label
+                            className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                            htmlFor={`notes-${lead.id}`}
+                          >
+                            Internal notes
+                          </label>
+                          <textarea
+                            id={`notes-${lead.id}`}
+                            name="notes"
+                            defaultValue={lead.notes ?? ""}
+                            rows={4}
+                            placeholder="Add admin notes"
+                            className="mt-2 w-full resize-y rounded-xl border border-border bg-card px-3 py-2 text-sm leading-6 text-foreground"
+                          />
                         </div>
                         <button
                           type="submit"

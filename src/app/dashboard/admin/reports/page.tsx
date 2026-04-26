@@ -212,12 +212,16 @@ function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "li
             {view.enrollmentOptions.length ? (
               <form action={createParentReport} className="mt-5 grid gap-4">
                 <label className="grid gap-2 text-sm font-semibold">
-                  Student enrolment
+                  Enrolled student
                   <select
                     className="min-h-12 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
+                    defaultValue=""
                     name="enrollmentId"
                     required
                   >
+                    <option disabled value="">
+                      Select an enrolled student and course
+                    </option>
                     {view.enrollmentOptions.map((option) => (
                       <option key={option.enrollment.id} value={option.enrollment.id}>
                         {formatEnrollmentOption(option)}
@@ -256,15 +260,14 @@ function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "li
                   >
                     {reportStatuses.map((status) => (
                       <option key={status} value={status}>
-                        {formatStatus(status)}
+                        {formatReportStatusLabel(status)}
                       </option>
                     ))}
                   </select>
                 </label>
 
                 <p className="rounded-xl border border-border bg-muted px-4 py-3 text-xs leading-5 text-muted-foreground">
-                  Draft reports stay in admin preparation. Parents can view the report only after
-                  the status is set to sent.
+                  Only reports marked as Sent to parent will appear in the parent dashboard.
                 </p>
 
                 <button
@@ -276,8 +279,8 @@ function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "li
               </form>
             ) : (
               <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                No enrolments are available yet. Create student access and enrolments before
-                preparing parent reports.
+                No enrolled students found. Create or activate an enrolment before generating a
+                parent report.
               </p>
             )}
           </Card>
@@ -355,7 +358,7 @@ function RecentReportCard({ report }: { report: RecentReport }) {
           </p>
         </div>
         <StatusBadge tone={report.sent_status === "sent" ? "success" : "warning"}>
-          {formatStatus(report.sent_status)}
+          {formatReportStatusLabel(report.sent_status)}
         </StatusBadge>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -432,12 +435,12 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function formatEnrollmentOption(option: EnrollmentOption) {
   const studentName = option.profile?.full_name ?? option.student?.student_code ?? "Student";
-  const email = option.profile?.email ? ` / ${option.profile.email}` : "";
-  const code = option.student?.student_code ? ` / ${option.student.student_code}` : "";
+  const email = option.profile?.email ?? "No email";
+  const code = option.student?.student_code ?? "No code";
   const course = option.course?.title ?? "Course";
-  const batch = option.batch?.name ? ` / ${option.batch.name}` : "";
+  const batch = option.batch?.name ?? "No batch";
 
-  return `${studentName}${email}${code} - ${course}${batch} (${option.enrollment.enrollment_status}, ${option.enrollment.payment_status})`;
+  return `${studentName} / ${email} / ${code} - ${course} - ${batch} - Enrolment: ${formatStatus(option.enrollment.enrollment_status)} - Payment: ${formatStatus(option.enrollment.payment_status)}`;
 }
 
 function isReportStatus(status: string): status is ReportStatus {
@@ -478,6 +481,18 @@ function getOptionalText(value: FormDataEntryValue | null) {
 
 function formatStatus(status: string) {
   return status.replaceAll("_", " ");
+}
+
+function formatReportStatusLabel(status: ReportStatus) {
+  if (status === "sent") {
+    return "Sent to parent";
+  }
+
+  if (status === "not_sent") {
+    return "Not sent";
+  }
+
+  return "Draft";
 }
 
 function formatScore(value: number | null) {

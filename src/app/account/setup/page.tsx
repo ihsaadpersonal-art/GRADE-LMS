@@ -17,11 +17,11 @@ export default function AccountSetupPage() {
             <p className="mt-6 text-sm font-semibold uppercase tracking-[0.12em] text-primary">
               GRADE LMS
             </p>
-            <h1 className="mt-2 text-3xl font-semibold">Set up your account</h1>
+            <h1 className="mt-2 text-3xl font-semibold">Create or reset your password</h1>
             <p className="mt-4 text-base leading-7 text-muted-foreground">
-              Create a password for your invited student account. You will use this password
-              to access your lessons, Daily Task Units, quizzes, progress dashboard, and
-              GScore report later.
+              Create a password for your invited student account, or choose a new password
+              after recovery. You will use it to access lessons, Daily Task Units, quizzes,
+              your progress dashboard, and GScore report.
             </p>
             <SetupPasswordForm />
           </Card>

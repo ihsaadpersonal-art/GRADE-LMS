@@ -340,7 +340,7 @@ async function sendLeadInvitation(formData: FormData) {
     return;
   }
 
-  const redirectTo = `${origin}/auth/callback?next=/dashboard`;
+  const redirectTo = `${origin}/auth/callback?next=/account/setup`;
   const { data, error } = await supabase.auth.admin.inviteUserByEmail(lead.email, {
     redirectTo,
     data: {

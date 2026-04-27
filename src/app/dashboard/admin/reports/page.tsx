@@ -347,6 +347,8 @@ function SampleReportsPage({ message }: { message: string }) {
 }
 
 function RecentReportCard({ report }: { report: RecentReport }) {
+  const whatsappMessage = report.report_text ?? buildWhatsAppReportText(report);
+
   return (
     <article className="rounded-2xl border border-border bg-background p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -366,6 +368,12 @@ function RecentReportCard({ report }: { report: RecentReport }) {
         <Detail label="Weekly test score" value={formatScore(report.weekly_test_score)} />
         <Detail label="Created" value={formatDateTime(report.created_at)} />
         <Detail label="Streak" value={`${report.current_streak} days`} />
+      </div>
+      <div className="mt-4 rounded-2xl border border-border bg-card p-4">
+        <h4 className="text-sm font-semibold">WhatsApp-ready message</h4>
+        <div className="mt-3">
+          <ReportCopy text={whatsappMessage} />
+        </div>
       </div>
     </article>
   );
@@ -493,6 +501,32 @@ function formatReportStatusLabel(status: ReportStatus) {
   }
 
   return "Draft";
+}
+
+function buildWhatsAppReportText(report: RecentReport) {
+  return [
+    "GRADE Weekly Report",
+    `Student: ${report.studentName}`,
+    `Programme: ${report.courseName}`,
+    `Week: ${formatDate(report.week_start)} - ${formatDate(report.week_end)}`,
+    "",
+    `Tasks Completed: ${report.tasks_completed}/${report.tasks_total}`,
+    `Weekly Test Score: ${formatScoreForMessage(report.weekly_test_score)}`,
+    `Previous Week Score: ${formatScoreForMessage(report.previous_week_score)}`,
+    `Current Streak: ${report.current_streak} days`,
+    "",
+    `This week's focus: ${report.focus_this_week ?? "Not provided"}`,
+    `Next week's focus: ${report.focus_next_week ?? "Not provided"}`,
+    "",
+    "Teacher Comment:",
+    report.teacher_comment ?? "Not provided",
+    "",
+    "- GRADE Academic Team",
+  ].join("\n");
+}
+
+function formatScoreForMessage(value: number | null) {
+  return value === null ? "Not provided" : `${Number(value).toFixed(0)}/100`;
 }
 
 function formatScore(value: number | null) {

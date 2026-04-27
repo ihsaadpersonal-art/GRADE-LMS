@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard-nav";
 import { ReportCopy } from "@/components/report-copy";
 import { Card, StatusBadge } from "@/components/ui";
@@ -43,14 +44,20 @@ type ReportsView =
 
 const reportStatuses = ["draft", "sent", "not_sent"] as const;
 
-export default async function AdminReportsPage() {
+export default async function AdminReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string | string[] }>;
+}) {
+  const query = await searchParams;
+  const error = getSingleParam(query.error);
   const view = (await getReportsView()) ?? {
     mode: "sample" as const,
     message: "Showing sample report generator preview because live Supabase data is unavailable.",
   };
 
   if (view.mode === "live") {
-    return <LiveAdminReportsPage view={view} />;
+    return <LiveAdminReportsPage error={error} view={view} />;
   }
 
   return <SampleReportsPage message={view.message} />;
@@ -74,8 +81,17 @@ async function createParentReport(formData: FormData) {
   const weekEnd = String(formData.get("week_end") ?? "");
   const sentStatus = String(formData.get("sent_status") ?? "");
 
-  if (!enrollmentId || !weekStart || !weekEnd || !isReportStatus(sentStatus)) {
-    return;
+  if (!enrollmentId) {
+    redirectWithReportError("Select an enrolled student before creating a report.");
+  }
+
+  const dateValidation = validateReportDates(weekStart, weekEnd);
+  if (dateValidation) {
+    redirectWithReportError(dateValidation);
+  }
+
+  if (!isReportStatus(sentStatus)) {
+    redirectWithReportError("Choose a valid report status.");
   }
 
   const { data: enrollment, error: enrollmentError } = await supabase
@@ -85,18 +101,65 @@ async function createParentReport(formData: FormData) {
     .maybeSingle();
 
   if (enrollmentError || !enrollment) {
-    return;
+    redirectWithReportError("The selected enrolment could not be found.");
   }
 
-  const tasksCompleted = parseRequiredInteger(formData.get("tasks_completed"));
-  const tasksTotal = parseRequiredInteger(formData.get("tasks_total"));
-  const currentStreak = parseRequiredInteger(formData.get("current_streak"));
+  const tasksCompleted = parseIntegerInRange(formData.get("tasks_completed"), 0, 100);
+  const tasksTotal = parseIntegerInRange(formData.get("tasks_total"), 1, 100);
+  const weeklyTestScore = parseNumberInRange(formData.get("weekly_test_score"), 0, 100);
+  const previousWeekScore = parseOptionalNumberInRange(
+    formData.get("previous_week_score"),
+    0,
+    100,
+  );
+  const currentStreak = parseIntegerInRange(formData.get("current_streak"), 0, 365);
+  const leaderboardRank = parseOptionalIntegerInRange(formData.get("leaderboard_rank"), 1, 999);
+  const focusThisWeek = getRequiredText(formData.get("focus_this_week"), 10);
+  const focusNextWeek = getRequiredText(formData.get("focus_next_week"), 10);
+  const teacherComment = getRequiredText(formData.get("teacher_comment"), 10);
+  const reportText = getRequiredText(formData.get("report_text"), 30);
 
-  if (tasksCompleted === null || tasksTotal === null || currentStreak === null) {
-    return;
+  if (tasksTotal === null) {
+    redirectWithReportError("Tasks total must be between 1 and 100.");
   }
 
-  await supabase.from("parent_reports").insert({
+  if (tasksCompleted === null || tasksCompleted > tasksTotal) {
+    redirectWithReportError("Tasks completed must be between 0 and the tasks total.");
+  }
+
+  if (weeklyTestScore === null) {
+    redirectWithReportError("Weekly test score must be between 0 and 100.");
+  }
+
+  if (previousWeekScore === undefined) {
+    redirectWithReportError("Previous week score must be between 0 and 100 when provided.");
+  }
+
+  if (currentStreak === null) {
+    redirectWithReportError("Current streak must be between 0 and 365 days.");
+  }
+
+  if (leaderboardRank === undefined) {
+    redirectWithReportError("Leaderboard rank must be between 1 and 999 when provided.");
+  }
+
+  if (!focusThisWeek) {
+    redirectWithReportError("Focus this week must be at least 10 characters.");
+  }
+
+  if (!focusNextWeek) {
+    redirectWithReportError("Focus next week must be at least 10 characters.");
+  }
+
+  if (!teacherComment) {
+    redirectWithReportError("Teacher comment must be at least 10 characters.");
+  }
+
+  if (!reportText) {
+    redirectWithReportError("Report text must be at least 30 characters.");
+  }
+
+  const { error: insertError } = await supabase.from("parent_reports").insert({
     student_id: enrollment.student_id,
     course_id: enrollment.course_id,
     batch_id: enrollment.batch_id,
@@ -104,19 +167,24 @@ async function createParentReport(formData: FormData) {
     week_end: weekEnd,
     tasks_completed: tasksCompleted,
     tasks_total: tasksTotal,
-    weekly_test_score: parseOptionalNumber(formData.get("weekly_test_score")),
-    previous_week_score: parseOptionalNumber(formData.get("previous_week_score")),
+    weekly_test_score: weeklyTestScore,
+    previous_week_score: previousWeekScore,
     current_streak: currentStreak,
-    leaderboard_rank: parseOptionalInteger(formData.get("leaderboard_rank")),
-    focus_this_week: getOptionalText(formData.get("focus_this_week")),
-    focus_next_week: getOptionalText(formData.get("focus_next_week")),
-    teacher_comment: getOptionalText(formData.get("teacher_comment")),
-    report_text: getOptionalText(formData.get("report_text")),
+    leaderboard_rank: leaderboardRank,
+    focus_this_week: focusThisWeek,
+    focus_next_week: focusNextWeek,
+    teacher_comment: teacherComment,
+    report_text: reportText,
     sent_status: sentStatus,
     sent_at: sentStatus === "sent" ? new Date().toISOString() : null,
   });
 
+  if (insertError) {
+    redirectWithReportError("The report could not be saved. Please check the fields and try again.");
+  }
+
   revalidatePath("/dashboard/admin/reports");
+  redirect("/dashboard/admin/reports");
 }
 
 async function getReportsView(): Promise<ReportsView | null> {
@@ -193,7 +261,13 @@ async function getReportsView(): Promise<ReportsView | null> {
   };
 }
 
-function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "live" }> }) {
+function LiveAdminReportsPage({
+  error,
+  view,
+}: {
+  error?: string;
+  view: Extract<ReportsView, { mode: "live" }>;
+}) {
   return (
     <DashboardShell role="admin" title="Parent Report Generator">
       <div className="grid gap-5">
@@ -209,6 +283,11 @@ function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "li
         <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
           <Card>
             <h2 className="text-xl font-semibold">Report Inputs</h2>
+            {error ? (
+              <p className="mt-4 rounded-xl border border-danger/20 bg-[#fff6f6] px-4 py-3 text-sm leading-6 text-danger">
+                {error}
+              </p>
+            ) : null}
             {view.enrollmentOptions.length ? (
               <form action={createParentReport} className="mt-5 grid gap-4">
                 <label className="grid gap-2 text-sm font-semibold">
@@ -233,21 +312,44 @@ function LiveAdminReportsPage({ view }: { view: Extract<ReportsView, { mode: "li
                 <div className="grid gap-4 sm:grid-cols-2">
                   <TextInput label="Week start" name="week_start" required type="date" />
                   <TextInput label="Week end" name="week_end" required type="date" />
-                  <TextInput label="Tasks completed" min="0" name="tasks_completed" required type="number" />
-                  <TextInput label="Tasks total" min="0" name="tasks_total" required type="number" />
-                  <TextInput label="Weekly test score" min="0" name="weekly_test_score" type="number" />
-                  <TextInput label="Previous week score" min="0" name="previous_week_score" type="number" />
-                  <TextInput label="Current streak" min="0" name="current_streak" required type="number" />
-                  <TextInput label="Leaderboard rank" min="1" name="leaderboard_rank" type="number" />
+                  <TextInput label="Tasks completed" max="100" min="0" name="tasks_completed" required type="number" />
+                  <TextInput label="Tasks total" max="100" min="1" name="tasks_total" required type="number" />
+                  <TextInput label="Weekly test score" max="100" min="0" name="weekly_test_score" required type="number" />
+                  <TextInput label="Previous week score" max="100" min="0" name="previous_week_score" type="number" />
+                  <TextInput label="Current streak" max="365" min="0" name="current_streak" required type="number" />
+                  <TextInput label="Leaderboard rank" max="999" min="1" name="leaderboard_rank" type="number" />
                 </div>
 
-                <TextareaInput label="Focus this week" name="focus_this_week" rows={3} />
-                <TextareaInput label="Focus next week" name="focus_next_week" rows={3} />
-                <TextareaInput label="Teacher comment" name="teacher_comment" rows={4} />
+                <TextareaInput
+                  label="Focus this week"
+                  minLength={10}
+                  name="focus_this_week"
+                  placeholder="Summarise the main academic focus for this week."
+                  required
+                  rows={3}
+                />
+                <TextareaInput
+                  label="Focus next week"
+                  minLength={10}
+                  name="focus_next_week"
+                  placeholder="Mention the next priority area for the student."
+                  required
+                  rows={3}
+                />
+                <TextareaInput
+                  label="Teacher comment"
+                  minLength={10}
+                  name="teacher_comment"
+                  placeholder="Add a concise, parent-friendly academic comment."
+                  required
+                  rows={4}
+                />
                 <TextareaInput
                   label="WhatsApp/report text"
+                  minLength={30}
                   name="report_text"
-                  placeholder="Optional custom text parents will see in the report copy box."
+                  placeholder="Write the parent-ready report message. Include progress, focus, and a clear next step."
+                  required
                   rows={6}
                 />
 
@@ -385,18 +487,21 @@ function TextInput({
   required,
   type,
   min,
+  max,
 }: {
   label: string;
   name: string;
   required?: boolean;
   type: "date" | "number";
   min?: string;
+  max?: string;
 }) {
   return (
     <label className="grid gap-2 text-sm font-semibold">
       {label}
       <input
         className="min-h-12 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
+        max={max}
         min={min}
         name={name}
         required={required}
@@ -411,19 +516,25 @@ function TextareaInput({
   name,
   rows,
   placeholder,
+  required,
+  minLength,
 }: {
   label: string;
   name: string;
   rows: number;
   placeholder?: string;
+  required?: boolean;
+  minLength?: number;
 }) {
   return (
     <label className="grid gap-2 text-sm font-semibold">
       {label}
       <textarea
         className="resize-y rounded-xl border border-border bg-background px-3 py-3 text-sm leading-6 text-foreground"
+        minLength={minLength}
         name={name}
         placeholder={placeholder}
+        required={required}
         rows={rows}
       />
     </label>
@@ -455,36 +566,92 @@ function isReportStatus(status: string): status is ReportStatus {
   return reportStatuses.includes(status as ReportStatus);
 }
 
-function parseRequiredInteger(value: FormDataEntryValue | null) {
+function parseIntegerInRange(value: FormDataEntryValue | null, min: number, max: number) {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
     return null;
   }
 
   return parsed;
 }
 
-function parseOptionalInteger(value: FormDataEntryValue | null) {
+function parseOptionalIntegerInRange(value: FormDataEntryValue | null, min: number, max: number) {
   if (value === null || String(value).trim() === "") {
     return null;
   }
 
   const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : undefined;
 }
 
-function parseOptionalNumber(value: FormDataEntryValue | null) {
+function parseNumberInRange(value: FormDataEntryValue | null, min: number, max: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
+}
+
+function parseOptionalNumberInRange(value: FormDataEntryValue | null, min: number, max: number) {
   if (value === null || String(value).trim() === "") {
     return null;
   }
 
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : undefined;
 }
 
-function getOptionalText(value: FormDataEntryValue | null) {
+function getRequiredText(value: FormDataEntryValue | null, minLength: number) {
   const text = String(value ?? "").trim();
-  return text ? text : null;
+  return text.length >= minLength ? text : null;
+}
+
+function validateReportDates(weekStart: string, weekEnd: string) {
+  const start = parseReportDate(weekStart);
+  const end = parseReportDate(weekEnd);
+
+  if (!start) {
+    return "Week start is required and must be a valid date.";
+  }
+
+  if (!end) {
+    return "Week end is required and must be a valid date.";
+  }
+
+  if (start.year < 2025 || start.year > 2030) {
+    return "Week start year must be between 2025 and 2030.";
+  }
+
+  if (end.year < 2025 || end.year > 2030) {
+    return "Week end year must be between 2025 and 2030.";
+  }
+
+  if (end.time < start.time) {
+    return "Week end must be the same day as, or after, week start.";
+  }
+
+  return null;
+}
+
+function parseReportDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return {
+    year: date.getUTCFullYear(),
+    time: date.getTime(),
+  };
+}
+
+function redirectWithReportError(message: string): never {
+  redirect(`/dashboard/admin/reports?error=${encodeURIComponent(message)}`);
+}
+
+function getSingleParam(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function formatStatus(status: string) {

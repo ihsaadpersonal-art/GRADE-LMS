@@ -1,5 +1,6 @@
-import { DashboardShell } from "@/components/dashboard-nav";
-import { Card, MetricCard, StatusBadge } from "@/components/ui";
+import Link from "next/link";
+import { LogoutButton } from "@/components/logout-button";
+import { Card, Container, MetricCard, StatusBadge } from "@/components/ui";
 import { getCurrentProfile } from "@/lib/auth";
 import { buildParentReportText } from "@/lib/grade";
 import { parentReport } from "@/lib/sample-data";
@@ -39,13 +40,13 @@ export default async function ParentDashboardPage() {
 
   if (view.mode === "empty") {
     return (
-      <DashboardShell role="parent" title="Parent Dashboard">
+      <ParentDashboardShell title="Parent Dashboard">
         <Card>
           <StatusBadge tone="warning">Parent report</StatusBadge>
           <h2 className="mt-4 text-2xl font-semibold">No parent report has been published yet.</h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">{view.message}</p>
         </Card>
-      </DashboardShell>
+      </ParentDashboardShell>
     );
   }
 
@@ -172,7 +173,7 @@ function LiveParentDashboard({ reports }: { reports: LiveParentReport[] }) {
   const olderReports = reports.slice(1);
 
   return (
-    <DashboardShell role="parent" title="Parent Dashboard">
+    <ParentDashboardShell title="Parent Dashboard">
       <div className="grid gap-5">
         <Card className="bg-[#eef5e8]">
           <StatusBadge tone="success">Live parent report</StatusBadge>
@@ -276,13 +277,13 @@ function LiveParentDashboard({ reports }: { reports: LiveParentReport[] }) {
           </Card>
         ) : null}
       </div>
-    </DashboardShell>
+    </ParentDashboardShell>
   );
 }
 
 function SampleParentDashboard({ message }: { message?: string }) {
   return (
-    <DashboardShell role="parent" title="Parent Report Preview">
+    <ParentDashboardShell title="Parent Report Preview">
       <div className="grid gap-5">
         {message ? (
           <Card>
@@ -329,7 +330,42 @@ function SampleParentDashboard({ message }: { message?: string }) {
           </div>
         </Card>
       </div>
-    </DashboardShell>
+    </ParentDashboardShell>
+  );
+}
+
+function ParentDashboardShell({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-[#f7f5ed]">
+      <header className="border-b border-border bg-card/95 shadow-[0_8px_28px_rgba(32,48,37,0.06)] backdrop-blur">
+        <Container className="flex min-h-20 flex-col gap-4 py-5 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">
+              GRADE LMS
+            </p>
+            <h1 className="mt-1 text-3xl font-semibold leading-tight">{title}</h1>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Link
+              href="/"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 text-sm font-semibold text-primary hover:bg-muted"
+            >
+              Public site
+            </Link>
+            <LogoutButton />
+          </div>
+        </Container>
+      </header>
+      <Container className="py-6">
+        <main className="min-w-0">{children}</main>
+      </Container>
+    </div>
   );
 }
 

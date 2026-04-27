@@ -15,6 +15,8 @@ type EnrollmentRow = Database["public"]["Tables"]["enrollments"]["Row"];
 type CourseRow = Database["public"]["Tables"]["courses"]["Row"];
 type BatchRow = Database["public"]["Tables"]["batches"]["Row"];
 type ParentReportRow = Database["public"]["Tables"]["parent_reports"]["Row"];
+type ParentRow = Database["public"]["Tables"]["parents"]["Row"];
+type ParentStudentRow = Database["public"]["Tables"]["parent_students"]["Row"];
 
 type ReportStatus = ParentReportRow["sent_status"];
 
@@ -29,6 +31,7 @@ type EnrollmentOption = {
 type RecentReport = ParentReportRow & {
   studentName: string;
   courseName: string;
+  parentNumber: string | null;
 };
 
 type ReportsView =
@@ -205,6 +208,8 @@ async function getReportsView(): Promise<ReportsView | null> {
     coursesResult,
     batchesResult,
     reportsResult,
+    parentsResult,
+    parentLinksResult,
   ] = await Promise.all([
     supabase.from("students").select("*").order("created_at", { ascending: false }),
     supabase.from("profiles").select("*"),
@@ -212,6 +217,8 @@ async function getReportsView(): Promise<ReportsView | null> {
     supabase.from("courses").select("*"),
     supabase.from("batches").select("*"),
     supabase.from("parent_reports").select("*").order("created_at", { ascending: false }).limit(10),
+    supabase.from("parents").select("*"),
+    supabase.from("parent_students").select("*"),
   ]);
 
   if (
@@ -220,7 +227,9 @@ async function getReportsView(): Promise<ReportsView | null> {
     enrollmentsResult.error ||
     coursesResult.error ||
     batchesResult.error ||
-    reportsResult.error
+    reportsResult.error ||
+    parentsResult.error ||
+    parentLinksResult.error
   ) {
     return null;
   }
@@ -229,6 +238,8 @@ async function getReportsView(): Promise<ReportsView | null> {
   const profilesById = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile]));
   const coursesById = new Map((coursesResult.data ?? []).map((course) => [course.id, course]));
   const batchesById = new Map((batchesResult.data ?? []).map((batch) => [batch.id, batch]));
+  const parentsById = new Map((parentsResult.data ?? []).map((parent) => [parent.id, parent]));
+  const parentByStudentId = getParentByStudentId(parentLinksResult.data ?? [], parentsById);
 
   const enrollmentOptions = (enrollmentsResult.data ?? []).map((enrollment) => {
     const student = studentsById.get(enrollment.student_id) ?? null;
@@ -251,6 +262,7 @@ async function getReportsView(): Promise<ReportsView | null> {
       ...report,
       studentName: profile?.full_name ?? student?.student_code ?? "Student",
       courseName: coursesById.get(report.course_id)?.title ?? "GRADE course",
+      parentNumber: parentByStudentId.get(report.student_id) ?? null,
     };
   });
 
@@ -293,16 +305,18 @@ function LiveAdminReportsPage({
                 <label className="grid gap-2 text-sm font-semibold">
                   Enrolled student
                   <select
+                    id="report-enrollment"
                     className="min-h-12 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
-                    defaultValue=""
                     name="enrollmentId"
                     required
                   >
-                    <option disabled value="">
-                      Select an enrolled student and course
-                    </option>
                     {view.enrollmentOptions.map((option) => (
-                      <option key={option.enrollment.id} value={option.enrollment.id}>
+                      <option
+                        data-course={getEnrollmentCourseName(option)}
+                        data-student={getEnrollmentStudentName(option)}
+                        key={option.enrollment.id}
+                        value={option.enrollment.id}
+                      >
                         {formatEnrollmentOption(option)}
                       </option>
                     ))}
@@ -344,14 +358,34 @@ function LiveAdminReportsPage({
                   required
                   rows={4}
                 />
-                <TextareaInput
-                  label="WhatsApp/report text"
-                  minLength={30}
-                  name="report_text"
-                  placeholder="Write the parent-ready report message. Include progress, focus, and a clear next step."
-                  required
-                  rows={6}
-                />
+                <div className="grid gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="text-sm font-semibold" htmlFor="report-text">
+                      WhatsApp/report text
+                    </label>
+                    <button
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-primary/25 bg-card px-4 text-sm font-semibold text-primary transition hover:bg-muted"
+                      id="generate-report-text"
+                      type="button"
+                    >
+                      Generate report text
+                    </button>
+                  </div>
+                  <textarea
+                    className="min-h-52 resize-y rounded-xl border border-border bg-background px-3 py-3 text-sm leading-6 text-foreground"
+                    defaultValue={buildInitialReportTemplate(view.enrollmentOptions[0])}
+                    id="report-text"
+                    minLength={30}
+                    name="report_text"
+                    placeholder="Generate a parent-ready message from the form, then edit it before saving."
+                    required
+                    rows={8}
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Use the generator after filling the report fields, then adjust the wording before
+                    saving.
+                  </p>
+                </div>
 
                 <label className="grid gap-2 text-sm font-semibold">
                   Report status
@@ -385,6 +419,7 @@ function LiveAdminReportsPage({
                 parent report.
               </p>
             )}
+            <ReportTextGeneratorScript />
           </Card>
 
           <Card>
@@ -449,7 +484,10 @@ function SampleReportsPage({ message }: { message: string }) {
 }
 
 function RecentReportCard({ report }: { report: RecentReport }) {
-  const whatsappMessage = report.report_text ?? buildWhatsAppReportText(report);
+  const whatsappMessage = report.report_text || buildWhatsAppReportText(report);
+  const whatsappHref = report.parentNumber
+    ? `https://wa.me/${report.parentNumber}?text=${encodeURIComponent(whatsappMessage)}`
+    : null;
 
   return (
     <article className="rounded-2xl border border-border bg-background p-4">
@@ -473,11 +511,86 @@ function RecentReportCard({ report }: { report: RecentReport }) {
       </div>
       <div className="mt-4 rounded-2xl border border-border bg-card p-4">
         <h4 className="text-sm font-semibold">WhatsApp-ready message</h4>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          {whatsappHref ? (
+            <a
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-[#104d36]"
+              href={whatsappHref}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Send via WhatsApp
+            </a>
+          ) : (
+            <p className="text-sm text-muted-foreground">Parent WhatsApp number missing.</p>
+          )}
+        </div>
         <div className="mt-3">
           <ReportCopy text={whatsappMessage} />
         </div>
       </div>
     </article>
+  );
+}
+
+function ReportTextGeneratorScript() {
+  return (
+    <script
+      dangerouslySetInnerHTML={{
+        __html: `
+          (() => {
+            const button = document.getElementById("generate-report-text");
+            const textarea = document.getElementById("report-text");
+            const enrolment = document.getElementById("report-enrollment");
+            if (!button || !textarea || !enrolment) return;
+
+            const readValue = (name, fallback = "Not provided") => {
+              const field = document.querySelector('[name="' + name + '"]');
+              const value = field && "value" in field ? String(field.value).trim() : "";
+              return value || fallback;
+            };
+
+            const readSelected = (name, fallback) => {
+              const selected = enrolment.options[enrolment.selectedIndex];
+              return selected?.dataset?.[name] || fallback;
+            };
+
+            const generate = () => {
+              const studentName = readSelected("student", "the student");
+              const courseTitle = readSelected("course", "GRADE course");
+              const leaderboardRank = readValue("leaderboard_rank", "Not provided");
+              const previousScore = readValue("previous_week_score", "Not provided");
+
+              textarea.value = [
+                "Assalamu Alaikum. Here is this week's GRADE progress update for " + studentName + ".",
+                "",
+                "Course: " + courseTitle,
+                "Week: " + readValue("week_start", "[Week start]") + " to " + readValue("week_end", "[Week end]"),
+                "",
+                "This week, " + studentName + " completed " + readValue("tasks_completed", "0") + " out of " + readValue("tasks_total", "0") + " tasks and scored " + readValue("weekly_test_score", "0") + "% in the weekly assessment. Last week's score was " + previousScore + (previousScore === "Not provided" ? "" : "%") + ", and the current study streak is " + readValue("current_streak", "0") + " days. Current leaderboard rank: " + (leaderboardRank === "Not provided" ? "Not provided" : "#" + leaderboardRank) + ".",
+                "",
+                "Focus this week:",
+                readValue("focus_this_week"),
+                "",
+                "Focus next week:",
+                readValue("focus_next_week"),
+                "",
+                "Teacher's comment:",
+                readValue("teacher_comment"),
+                "",
+                "Please encourage regular revision and timely Daily Task Unit submission.",
+                "",
+                "- GRADE Academic Team"
+              ].join("\\n");
+
+              textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            };
+
+            button.addEventListener("click", generate);
+          })();
+        `,
+      }}
+    />
   );
 }
 
@@ -553,13 +666,90 @@ function Detail({ label, value }: { label: string; value: string }) {
 }
 
 function formatEnrollmentOption(option: EnrollmentOption) {
-  const studentName = option.profile?.full_name ?? option.student?.student_code ?? "Student";
+  const studentName = getEnrollmentStudentName(option);
   const email = option.profile?.email ?? "No email";
   const code = option.student?.student_code ?? "No code";
-  const course = option.course?.title ?? "Course";
+  const course = getEnrollmentCourseName(option);
   const batch = option.batch?.name ?? "No batch";
 
   return `${studentName} / ${email} / ${code} - ${course} - ${batch} - Enrolment: ${formatStatus(option.enrollment.enrollment_status)} - Payment: ${formatStatus(option.enrollment.payment_status)}`;
+}
+
+function getParentByStudentId(
+  parentLinks: ParentStudentRow[],
+  parentsById: Map<string, ParentRow>,
+) {
+  const parentByStudentId = new Map<string, string>();
+
+  for (const link of parentLinks) {
+    if (parentByStudentId.has(link.student_id)) {
+      continue;
+    }
+
+    const parent = parentsById.get(link.parent_id);
+    const normalizedNumber = normalizeBangladeshPhone(parent?.whatsapp || parent?.phone);
+    if (normalizedNumber) {
+      parentByStudentId.set(link.student_id, normalizedNumber);
+    }
+  }
+
+  return parentByStudentId;
+}
+
+function normalizeBangladeshPhone(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  const digits = value.replace(/[\s+\-()]/g, "");
+  if (!digits) {
+    return null;
+  }
+
+  if (digits.startsWith("0")) {
+    return `880${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith("880")) {
+    return digits;
+  }
+
+  return null;
+}
+
+function getEnrollmentStudentName(option: EnrollmentOption) {
+  return option.profile?.full_name ?? option.student?.student_code ?? "Student";
+}
+
+function getEnrollmentCourseName(option: EnrollmentOption) {
+  return option.course?.title ?? "Course";
+}
+
+function buildInitialReportTemplate(option?: EnrollmentOption) {
+  const studentName = option ? getEnrollmentStudentName(option) : "[Student Name]";
+  const courseTitle = option ? getEnrollmentCourseName(option) : "[Course Title]";
+
+  return [
+    `Assalamu Alaikum. Here is this week's GRADE progress update for ${studentName}.`,
+    "",
+    `Course: ${courseTitle}`,
+    "Week: [Week start] to [Week end]",
+    "",
+    `This week, ${studentName} completed [tasks completed] out of [tasks total] tasks and scored [weekly test score]% in the weekly assessment. Last week's score was [previous week score]%, and the current study streak is [current streak] days. Current leaderboard rank: #[leaderboard rank].`,
+    "",
+    "Focus this week:",
+    "[Focus this week]",
+    "",
+    "Focus next week:",
+    "[Focus next week]",
+    "",
+    "Teacher's comment:",
+    "[Teacher comment]",
+    "",
+    "Please encourage regular revision and timely Daily Task Unit submission.",
+    "",
+    "- GRADE Academic Team",
+  ].join("\n");
 }
 
 function isReportStatus(status: string): status is ReportStatus {
